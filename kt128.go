@@ -39,6 +39,14 @@ func New(c []byte) *Hasher {
 	return &Hasher{c: c}
 }
 
+// SetCustomizationString sets the customization string for the hasher.
+func (h *Hasher) SetCustomizationString(c []byte) {
+	if h.state == stateFinalized {
+		panic("kt128: Hasher is finalized")
+	}
+	h.c = c
+}
+
 func (h *Hasher) BlockSize() int {
 	return BlockSize
 }
