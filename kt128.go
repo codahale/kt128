@@ -182,40 +182,6 @@ func (h *Hasher) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Chain finalizes the Hasher with two single-byte customization values and
-// squeezes independent output into dstA and dstB. The Hasher is consumed and
-// must not be used after Chain (call Reset to reuse).
-//
-// The final pad and permute is performed in parallel using the 2x permutation.
-func (h *Hasher) Chain(customA uint8, dstA []byte, customB uint8, dstB []byte) {
-	if h.state == stateFinalized {
-		return
-	}
-
-	// Append the customization suffix for A: [custom, 0x01, 0x01].
-	bufLen := len(h.buf)
-	h.buf = append(h.buf, customA, 0x01, 0x01)
-
-	// Value-copy the hasher; both copies share h.buf's underlying array.
-	a := *h
-	b := *h
-
-	// Absorb the message (including suffix A) into a's duplex.
-	a.absorbMessage()
-
-	// Overwrite the custom byte in the shared buffer for B.
-	h.buf[bufLen] = customB
-
-	// Absorb the message (including suffix B) into b's duplex.
-	b.absorbMessage()
-
-	// Both suffixes are the same length, so positions always match.
-	a.final.padPermute2(&b.final, a.ds)
-
-	a.final.squeeze(dstA)
-	b.final.squeeze(dstB)
-}
-
 // Clone returns an independent copy of the Hasher. The original and clone evolve independently.
 func (h *Hasher) Clone() *Hasher {
 	return &Hasher{

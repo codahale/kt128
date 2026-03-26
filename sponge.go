@@ -151,15 +151,6 @@ func (s *sponge) padPermute(ds byte) {
 	s.pos = 0
 }
 
-func (s *sponge) padPermute2(b *sponge, ds byte) {
-	if s.pos != b.pos {
-		panic("kt128: padPermute2 with mismatched positions")
-	}
-	padPermute2(s, b, ds)
-	s.pos = 0
-	b.pos = 0
-}
-
 func (s *sponge) equal(other *sponge) int {
 	var acc uint64
 	for i := range lanes {
