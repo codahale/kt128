@@ -60,6 +60,10 @@ func (h *Hasher) Pos() uint64 {
 
 // Write absorbs message bytes. It must not be called after Read or Sum.
 func (h *Hasher) Write(p []byte) (int, error) {
+	if h.state == stateFinalized {
+		panic("kt128: Hasher is finalized")
+	}
+
 	n := len(p)
 	h.pos += uint64(n)
 
