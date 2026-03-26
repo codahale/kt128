@@ -16,7 +16,9 @@ const (
 	// BlockSize is the KT128 chunk size in bytes.
 	BlockSize = 8192
 
-	leafDS = 0x0B
+	leafDS   = 0x0B
+	treeDS   = 0x06
+	singleDS = 0x07
 
 	// Hasher lifecycle states.
 	stateSingle    uint8 = 0 // absorbing, single-node (< 1 chunk seen)
@@ -31,7 +33,7 @@ type Hasher struct {
 	pos       uint64 // total bytes written via Write
 	leafCount uint64 // total leaf CVs written to final so far
 	state     uint8  // lifecycle: stateSingle -> stateTree -> stateFinalized
-	ds        byte   // KT128 customization byte for finalization (0x07 single-node, 0x06 tree-mode)
+	ds        byte   // KT128 customization byte for finalization (singleDS or treeDS)
 }
 
 // New returns a new Hasher with the given customization string.
@@ -73,14 +75,10 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		// Enter tree mode: flush S_0 from buf + start of p.
 		h.buf = append(h.buf, p[:need]...)
 		p = p[need:]
-		h.final.reset()
-		h.ds = 0x06
-		h.final.absorb(h.buf[:BlockSize])
-		h.final.absorb(kt12Marker[:])
+		h.startTreeMode(h.buf[:BlockSize])
 		// Keep the one overflow byte.
 		h.buf[0] = h.buf[BlockSize]
 		h.buf = h.buf[:1]
-		h.state = stateTree
 	}
 
 	lanes := availableLanes
@@ -227,6 +225,15 @@ func customSuffix(dst []byte, c []byte) []byte {
 	return lengthEncode(dst, uint64(len(c)))
 }
 
+// startTreeMode resets the final sponge and absorbs S_0 plus the KT12 marker.
+func (h *Hasher) startTreeMode(s0 []byte) {
+	h.final.reset()
+	h.ds = treeDS
+	h.final.absorb(s0)
+	h.final.absorb(kt12Marker[:])
+	h.state = stateTree
+}
+
 // absorbMessage absorbs h.buf into h.final, setting h.ds. It does not modify h.buf.
 func (h *Hasher) absorbMessage() {
 	buf := h.buf
@@ -235,16 +242,13 @@ func (h *Hasher) absorbMessage() {
 		if len(buf) <= BlockSize {
 			// Single-node: KT128 single-node finalization.
 			h.final.reset()
-			h.ds = 0x07
+			h.ds = singleDS
 			h.final.absorb(buf)
 			return
 		}
 
 		// Enter tree mode: flush S_0.
-		h.final.reset()
-		h.ds = 0x06
-		h.final.absorb(buf[:BlockSize])
-		h.final.absorb(kt12Marker[:])
+		h.startTreeMode(buf[:BlockSize])
 		buf = buf[BlockSize:]
 	}
 
