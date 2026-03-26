@@ -161,7 +161,8 @@ var rfcVectors = []struct {
 func TestRFCVectors(t *testing.T) {
 	for _, tc := range rfcVectors {
 		t.Run(tc.name, func(t *testing.T) {
-			h := New(tc.custom)
+			h := New()
+			h.SetCustomizationString(tc.custom)
 
 			if tc.msg != nil {
 				_, _ = h.Write(tc.msg)
@@ -195,7 +196,7 @@ func TestClone(t *testing.T) {
 			msg := ptn(size)
 
 			// Write all data, clone, verify both produce the same output.
-			h := New([]byte("test"))
+			h := New()
 			_, _ = h.Write(msg)
 
 			clone := h.Clone()
@@ -214,7 +215,7 @@ func TestClone(t *testing.T) {
 	}
 
 	t.Run("independent after clone", func(t *testing.T) {
-		h := New([]byte("test"))
+		h := New()
 		_, _ = h.Write(ptn(BlockSize + 1))
 
 		clone := h.Clone()
@@ -236,10 +237,10 @@ func TestClone(t *testing.T) {
 
 func TestEqual(t *testing.T) {
 	t.Run("same input", func(t *testing.T) {
-		h1 := New([]byte("test"))
+		h1 := New()
 		_, _ = h1.Write(ptn(100))
 
-		h2 := New([]byte("test"))
+		h2 := New()
 		_, _ = h2.Write(ptn(100))
 
 		if h1.Equal(h2) != 1 {
@@ -248,10 +249,10 @@ func TestEqual(t *testing.T) {
 	})
 
 	t.Run("different input", func(t *testing.T) {
-		h1 := New([]byte("test"))
+		h1 := New()
 		_, _ = h1.Write(ptn(100))
 
-		h2 := New([]byte("test"))
+		h2 := New()
 		_, _ = h2.Write(ptn(200))
 
 		if h1.Equal(h2) != 0 {
@@ -260,7 +261,7 @@ func TestEqual(t *testing.T) {
 	})
 
 	t.Run("clone", func(t *testing.T) {
-		h := New([]byte("test"))
+		h := New()
 		_, _ = h.Write(ptn(BlockSize + 1))
 
 		clone := h.Clone()
@@ -270,7 +271,7 @@ func TestEqual(t *testing.T) {
 	})
 
 	t.Run("diverged clone", func(t *testing.T) {
-		h := New([]byte("test"))
+		h := New()
 		_, _ = h.Write(ptn(100))
 
 		clone := h.Clone()
@@ -284,14 +285,14 @@ func TestEqual(t *testing.T) {
 
 func TestPos(t *testing.T) {
 	t.Run("new hasher", func(t *testing.T) {
-		h := New(nil)
+		h := New()
 		if h.Pos() != 0 {
 			t.Fatalf("Pos() = %d, want 0", h.Pos())
 		}
 	})
 
 	t.Run("after write", func(t *testing.T) {
-		h := New(nil)
+		h := New()
 		_, _ = h.Write(ptn(100))
 		if h.Pos() != 100 {
 			t.Fatalf("Pos() = %d, want 100", h.Pos())
@@ -299,7 +300,7 @@ func TestPos(t *testing.T) {
 	})
 
 	t.Run("cumulative writes", func(t *testing.T) {
-		h := New(nil)
+		h := New()
 		_, _ = h.Write(ptn(100))
 		_, _ = h.Write(ptn(200))
 		if h.Pos() != 300 {
@@ -308,7 +309,7 @@ func TestPos(t *testing.T) {
 	})
 
 	t.Run("after reset", func(t *testing.T) {
-		h := New(nil)
+		h := New()
 		_, _ = h.Write(ptn(100))
 		h.Reset()
 		if h.Pos() != 0 {
@@ -318,12 +319,12 @@ func TestPos(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	h := New([]byte("test"))
+	h := New()
 	_, _ = h.Write(ptn(BlockSize + 1))
 	h.Reset()
 	_, _ = h.Write(ptn(BlockSize + 1))
 
-	fresh := New([]byte("test"))
+	fresh := New()
 	_, _ = fresh.Write(ptn(BlockSize + 1))
 
 	out1 := make([]byte, 64)
@@ -338,7 +339,7 @@ func TestReset(t *testing.T) {
 }
 
 func TestBlockSizeMethod(t *testing.T) {
-	h := New(nil)
+	h := New()
 	if got := h.BlockSize(); got != BlockSize {
 		t.Fatalf("BlockSize() = %d, want %d", got, BlockSize)
 	}
@@ -352,7 +353,7 @@ func BenchmarkWrite(b *testing.B) {
 			b.SetBytes(int64(size.N))
 			b.ReportAllocs()
 			for b.Loop() {
-				h := New(nil)
+				h := New()
 				_, _ = h.Write(msg)
 				_, _ = h.Read(out)
 			}
@@ -372,7 +373,7 @@ func BenchmarkWriteStreaming(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				h := New(nil)
+				h := New()
 				for i := 0; i < len(msg); i += BlockSize {
 					end := min(i+BlockSize, len(msg))
 					_, _ = h.Write(msg[i:end])
@@ -391,7 +392,7 @@ func BenchmarkRead(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				h := New(nil)
+				h := New()
 				_, _ = h.Write(ptn(BlockSize + 1))
 				_, _ = io.ReadFull(h, out)
 			}

@@ -36,9 +36,9 @@ type Hasher struct {
 	ds        byte   // KT128 customization byte for finalization (singleDS or treeDS)
 }
 
-// New returns a new Hasher with the given customization string.
-func New(c []byte) *Hasher {
-	return &Hasher{c: c}
+// New returns a new Hasher.
+func New() *Hasher {
+	return &Hasher{}
 }
 
 // SetCustomizationString sets the customization string for the hasher.
