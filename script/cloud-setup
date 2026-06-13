@@ -1,0 +1,17 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+set -o xtrace
+
+until gcloud compute ssh kt128 --zone=us-central1-b --command 'pwd' ; do
+  echo "Instance not fully available, retrying in 5 seconds..."
+  sleep 5
+done
+gcloud compute ssh kt128 --zone=us-central1-b --command 'sudo apt-get install git -y'
+gcloud compute ssh kt128 --zone=us-central1-b --command 'wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz'
+gcloud compute ssh kt128 --zone=us-central1-b --command 'tar -xzf *.tar.gz'
+gcloud compute ssh kt128 --zone=us-central1-b --command "echo 'export PATH=\"\$PATH:~/go/bin\"' >> ~/.bashrc"
+gcloud compute ssh kt128 --zone=us-central1-b --command "echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc"
+gcloud compute ssh kt128 --zone=us-central1-b --command 'git clone https://github.com/codahale/kt128'
+# shellcheck disable=SC2016
+gcloud compute ssh kt128 --zone=us-central1-b --command 'PATH=$PATH:~/go/bin go install golang.org/x/perf/cmd/benchstat@latest'
