@@ -1,0 +1,96 @@
+name: Fuzz
+
+on:
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: 'How long to fuzz each target (Go duration, e.g. 10m, 1h).'
+        default: '10m'
+  schedule:
+    # Nightly at 04:17 UTC. Fuzzing is too slow to gate pushes and PRs; the seed
+    # corpus still runs there as part of the normal test suite.
+    - cron: '17 4 * * *'
+
+permissions:
+  contents: read
+
+env:
+  FUZZTIME: ${{ github.event.inputs.fuzztime || '10m' }}
+
+jobs:
+  fuzz:
+    name: Fuzz (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        # Arch-independent and native-assembly targets, on both architectures
+        # (arm64 included because it is the primary development host).
+        - { name: "Hasher (amd64)", os: ubuntu-24.04,     target: FuzzHasher,              chip: "" }
+        - { name: "P1600 (amd64)",  os: ubuntu-24.04,     target: FuzzP1600,               chip: "" }
+        - { name: "Absorb (amd64)", os: ubuntu-24.04,     target: FuzzFastLoopAbsorb168x1, chip: "" }
+        - { name: "Hasher (arm64)", os: ubuntu-24.04-arm, target: FuzzHasher,              chip: "" }
+        - { name: "P1600 (arm64)",  os: ubuntu-24.04-arm, target: FuzzP1600,               chip: "" }
+        - { name: "Absorb (arm64)", os: ubuntu-24.04-arm, target: FuzzFastLoopAbsorb168x1, chip: "" }
+        # The AVX-512 kernels only run on an AVX-512 CPU, so fuzz them under SDE
+        # (Skylake-X). FuzzHasher drives the AVX-512 leaf kernels end-to-end; the
+        # other two exercise the AVX-512 permute/absorb primitives directly.
+        - { name: "Hasher (skx)",   os: ubuntu-24.04,     target: FuzzHasher,                    chip: skx }
+        - { name: "P1600 (skx)",    os: ubuntu-24.04,     target: FuzzP1600AVX512,               chip: skx }
+        - { name: "Absorb (skx)",   os: ubuntu-24.04,     target: FuzzFastLoopAbsorb168x1AVX512, chip: skx }
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: 'stable'
+        cache: false
+
+    # Persist the generated corpus across runs (keyed per target/arch) so nightly
+    # fuzzing accumulates coverage instead of restarting from the seeds each time.
+    - name: Restore fuzz corpus
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/go-build/fuzz
+        key: fuzz-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.chip }}-${{ github.run_id }}
+        restore-keys: |
+          fuzz-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.chip }}-
+
+    - name: Setup SDE
+      if: matrix.chip != ''
+      uses: petarpetrovt/setup-sde@v5.0
+
+    - name: Fuzz
+      if: matrix.chip == ''
+      run: go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime "$FUZZTIME" .
+
+    # Compile natively, then fuzz the binary under SDE so the emulator only runs
+    # the test and its fuzz workers, never the Go toolchain.
+    - name: Fuzz under SDE
+      if: matrix.chip != ''
+      env:
+        # All SDE fuzz targets emulate an AVX-512 CPU.
+        KT128_EXPECT_AVX512: "1"
+      run: |
+        go test -c -o kt128.test .
+        # Preflight: fail loudly if SDE did not actually enable AVX-512. Otherwise
+        # the AVX-512 fuzzers would silently skip (and FuzzHasher would fuzz the
+        # AVX2 path), and "no fuzz tests to fuzz" exits 0 — a green run that tested
+        # nothing.
+        $SDE_PATH/sde64 -${{ matrix.chip }} -- ./kt128.test -test.run '^TestExpectedISA$' -test.v
+        $SDE_PATH/sde64 -${{ matrix.chip }} -- ./kt128.test \
+          -test.run '^$' -test.fuzz '^${{ matrix.target }}$' \
+          -test.fuzztime "$FUZZTIME" -test.fuzzcachedir "$(go env GOCACHE)/fuzz"
+
+    # On a crash, go test writes the reproducer to testdata/fuzz/<Target>/; keep
+    # it so the failing input can be replayed locally.
+    - name: Upload failing inputs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuzz-failure-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.chip }}
+        path: testdata/fuzz
+        if-no-files-found: ignore
