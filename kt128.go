@@ -171,17 +171,31 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	h.leafCount += uint64(nLeaves)
 }
 
-// Read squeezes output from the XOF. On the first call, it finalizes absorption
-// with empty customization.
+// Read squeezes output from the XOF. On the first call, it finalizes absorption.
 func (h *Hasher) Read(p []byte) (int, error) {
 	if h.state != stateFinalized {
-		h.buf = customSuffix(h.buf, h.c)
-		h.absorbMessage()
-		h.final.padPermute(h.ds)
+		h.finalize()
 		h.state = stateFinalized
 	}
 	h.final.squeeze(p)
 	return len(p), nil
+}
+
+// finalize absorbs the customization suffix and message tail, then applies the
+// final pad-and-permute. The suffix C || length_encode(|C|) is built in a small
+// scratch buffer so that finalization never reallocates the (possibly large)
+// message buffer just to append a few trailing bytes.
+func (h *Hasher) finalize() {
+	var scratch [64]byte
+	var suffix []byte
+	if n := len(h.c) + 9; n <= len(scratch) {
+		suffix = customSuffix(scratch[:0], h.c)
+	} else {
+		suffix = customSuffix(make([]byte, 0, n), h.c)
+	}
+
+	h.absorbMessage(suffix)
+	h.final.padPermute(h.ds)
 }
 
 // Clone returns an independent copy of the Hasher. The original and clone evolve independently.
@@ -238,45 +252,110 @@ func (h *Hasher) startTreeMode(s0 []byte) {
 	h.state = stateTree
 }
 
-// absorbMessage absorbs h.buf into h.final, setting h.ds. It does not modify h.buf.
-func (h *Hasher) absorbMessage() {
+// absorbMessage absorbs the logical message h.buf || suffix into h.final,
+// setting h.ds. The two slices are processed as a single byte stream without
+// concatenating them, so the (possibly large) message buffer is never copied.
+// It does not modify h.buf.
+func (h *Hasher) absorbMessage(suffix []byte) {
 	buf := h.buf
 
 	if h.state == stateSingle {
-		if len(buf) <= BlockSize {
+		if len(buf)+len(suffix) <= BlockSize {
 			// Single-node: KT128 single-node finalization.
 			h.final.reset()
 			h.ds = singleDS
 			h.final.absorb(buf)
+			h.final.absorb(suffix)
 			return
 		}
 
-		// Enter tree mode: flush S_0.
-		h.startTreeMode(buf[:BlockSize])
-		buf = buf[BlockSize:]
+		// Enter tree mode: flush S_0, the first BlockSize bytes of buf || suffix.
+		if len(buf) >= BlockSize {
+			h.startTreeMode(buf[:BlockSize])
+			buf = buf[BlockSize:]
+		} else {
+			// S_0 spans buf and suffix (only with a large customization string).
+			n := BlockSize - len(buf)
+			h.final.reset()
+			h.ds = treeDS
+			h.final.absorb(buf)
+			h.final.absorb(suffix[:n])
+			h.final.absorb(kt12Marker[:])
+			h.state = stateTree
+			buf = nil
+			suffix = suffix[n:]
+		}
 	}
 
-	// Process all remaining leaves. The last chunk may be partial.
-	fullLeaves := len(buf) / BlockSize
-	if fullLeaves > 0 {
-		h.processLeafBatch(buf[:fullLeaves*BlockSize], fullLeaves)
+	// Tree mode: process buf || suffix as leaves S_1, S_2, ... plus terminator.
+	// Complete leaves lying entirely within buf use the SIMD batch path directly.
+	if nFull := len(buf) / BlockSize; nFull > 0 {
+		h.processLeafBatch(buf[:nFull*BlockSize], nFull)
+		buf = buf[nFull*BlockSize:]
 	}
-
-	if partial := len(buf) - fullLeaves*BlockSize; partial > 0 {
-		var s1 sponge
-		leafStateX1(buf[fullLeaves*BlockSize:], &s1)
-		h.final.absorbCV(&s1)
-		h.leafCount++
-	}
+	// buf now holds the trailing < BlockSize message bytes; the remaining logical
+	// data is buf || suffix.
+	h.absorbTailLeaves(buf, suffix)
 
 	// Terminator: LengthEncode(leafCount) || 0xFF || 0xFF.
 	var leBuf [9]byte
 	h.final.absorb(lengthEncode(leBuf[:0], h.leafCount))
-	h.final.absorb([]byte{0xFF, 0xFF})
+	h.final.absorb(treeTerminator[:])
+}
+
+// absorbTailLeaves processes the final leaves of the logical stream head || tail,
+// where head is the trailing < BlockSize message bytes and tail is the remaining
+// customization suffix. The single leaf that straddles the head/tail boundary is
+// absorbed incrementally so neither slice is copied.
+func (h *Hasher) absorbTailLeaves(head, tail []byte) {
+	if len(head) == 0 {
+		// Remaining data is contiguous in tail.
+		h.absorbContiguousLeaves(tail)
+		return
+	}
+
+	if len(head)+len(tail) < BlockSize {
+		// A single final partial leaf = head || tail.
+		var s sponge
+		s.absorb(head)
+		s.absorb(tail)
+		s.padPermute(leafDS)
+		h.final.absorbCV(&s)
+		h.leafCount++
+		return
+	}
+
+	// The straddling leaf is full-size: head || tail[:BlockSize-len(head)].
+	n := BlockSize - len(head)
+	var s sponge
+	s.absorb(head)
+	s.absorb(tail[:n])
+	s.padPermute(leafDS)
+	h.final.absorbCV(&s)
+	h.leafCount++
+	h.absorbContiguousLeaves(tail[n:])
+}
+
+// absorbContiguousLeaves processes data as zero or more full leaves followed by
+// an optional final partial leaf, feeding each chain value into h.final.
+func (h *Hasher) absorbContiguousLeaves(data []byte) {
+	nFull := len(data) / BlockSize
+	if nFull > 0 {
+		h.processLeafBatch(data[:nFull*BlockSize], nFull)
+	}
+	if partial := len(data) - nFull*BlockSize; partial > 0 {
+		var s sponge
+		leafStateX1(data[nFull*BlockSize:], &s)
+		h.final.absorbCV(&s)
+		h.leafCount++
+	}
 }
 
 // kt12Marker is the 8-byte KangarooTwelve marker written after S_0.
 var kt12Marker = [8]byte{0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+
+// treeTerminator is the two-byte suffix absorbed after LengthEncode(leafCount).
+var treeTerminator = [2]byte{0xFF, 0xFF}
 
 // leafStateX1 computes a single KT128 leaf state.
 func leafStateX1(data []byte, s *sponge) {

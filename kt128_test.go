@@ -345,6 +345,51 @@ func TestBlockSizeMethod(t *testing.T) {
 	}
 }
 
+// TestWritePartitionInvariance verifies that the output is independent of how the
+// message is split across Write calls, across message and customization sizes
+// that straddle chunk boundaries. This exercises the buffering and finalization
+// paths far more densely than the RFC vectors.
+func TestWritePartitionInvariance(t *testing.T) {
+	// Sizes clustered around chunk and SIMD-batch boundaries.
+	interesting := []int{
+		0, 1, 2, 167, 168, 169,
+		BlockSize - 2, BlockSize - 1, BlockSize, BlockSize + 1, BlockSize + 2,
+		2*BlockSize - 1, 2 * BlockSize, 2*BlockSize + 1,
+		7 * BlockSize, 8*BlockSize - 1, 8 * BlockSize, 8*BlockSize + 1,
+		9 * BlockSize, 8*BlockSize + 168, 12345, 83521,
+	}
+	customs := []int{0, 1, 41, BlockSize - 4, BlockSize, BlockSize + 7, 2*BlockSize + 3}
+	chunks := []int{1, 7, 168, 8191, BlockSize, BlockSize + 1, 3 * BlockSize}
+
+	for _, msgLen := range interesting {
+		msg := ptn(msgLen)
+		for _, customLen := range customs {
+			custom := ptn(customLen)
+
+			// Reference: a single Write.
+			ref := New()
+			ref.SetCustomizationString(custom)
+			_, _ = ref.Write(msg)
+			want := make([]byte, 64)
+			_, _ = ref.Read(want)
+
+			for _, chunk := range chunks {
+				h := New()
+				h.SetCustomizationString(custom)
+				for off := 0; off < len(msg); off += chunk {
+					_, _ = h.Write(msg[off:min(off+chunk, len(msg))])
+				}
+				got := make([]byte, 64)
+				_, _ = h.Read(got)
+				if !bytes.Equal(got, want) {
+					t.Fatalf("msgLen=%d customLen=%d chunk=%d: output depends on write partitioning",
+						msgLen, customLen, chunk)
+				}
+			}
+		}
+	}
+}
+
 func BenchmarkWrite(b *testing.B) {
 	for _, size := range sizes {
 		b.Run(size.Name, func(b *testing.B) {

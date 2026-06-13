@@ -2,6 +2,7 @@ package kt128
 
 import (
 	"encoding/binary"
+	"fmt"
 	"testing"
 )
 
@@ -47,5 +48,26 @@ func BenchmarkProcessLeaves(b *testing.B) {
 	b.SetBytes(8 * blockSize)
 	for b.Loop() {
 		processLeaves(input, &cvs)
+	}
+}
+
+// BenchmarkLeafBatchRemainder measures processLeafBatch for the leftover-leaf
+// counts that hit the remainder path during finalization.
+func BenchmarkLeafBatchRemainder(b *testing.B) {
+	for _, n := range []int{5, 6, 7} {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			input := make([]byte, n*BlockSize)
+			for i := range input {
+				input[i] = byte(i)
+			}
+			h := New()
+			h.state = stateTree
+			b.SetBytes(int64(n * BlockSize))
+			for b.Loop() {
+				h.final.reset()
+				h.leafCount = 0
+				h.processLeafBatch(input, n)
+			}
+		})
 	}
 }
