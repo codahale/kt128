@@ -85,6 +85,9 @@ jobs:
 
     - name: Setup SDE
       uses: petarpetrovt/setup-sde@v5.0
+      with:
+        environmentVariableName: SDE_PATH
+        sdeVersion: "10.8.0"
 
     # Compile natively, then emulate only the test binary so SDE never has to run
     # the Go toolchain.

@@ -62,6 +62,9 @@ jobs:
     - name: Setup SDE
       if: matrix.chip != ''
       uses: petarpetrovt/setup-sde@v5.0
+      with:
+        environmentVariableName: SDE_PATH
+        sdeVersion: "10.8.0"
 
     - name: Fuzz
       if: matrix.chip == ''
