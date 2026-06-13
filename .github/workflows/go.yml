@@ -99,6 +99,30 @@ jobs:
         KT128_EXPECT_AVX512: ${{ matrix.target.expect }}
       run: $SDE_PATH/sde64 -${{ matrix.target.chip }} -- ./kt128.test -test.v -test.timeout 20m
 
+  bigendian:
+    name: Big-endian (s390x)
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: 'stable'
+        cache: true
+
+    # Register binfmt handlers so the kernel runs s390x binaries through QEMU.
+    - name: Setup QEMU
+      uses: docker/setup-qemu-action@v3
+
+    # s390x is big-endian, so this exercises the pure-Go path's LittleEndian byte
+    # handling on a big-endian host; the asm targets are build-excluded there.
+    - name: Test
+      env:
+        GOARCH: s390x
+      run: go test ./...
+
   lint:
     name: Lint
     runs-on: ubuntu-24.04
