@@ -68,27 +68,34 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	h.pos += uint64(n)
 
 	if h.state == stateSingle {
-		// Buffer until we have more than one chunk.
-		need := BlockSize + 1 - len(h.buf)
-		if need > len(p) {
-			// Not enough to enter tree mode; just buffer.
-			h.buf = append(h.buf, p...)
-			return n, nil
-		}
+		if len(h.buf) == 0 && len(p) > BlockSize {
+			// S_0 is contiguous in p, so absorb it without allocating a message
+			// buffer solely to enter tree mode.
+			h.startTreeMode(p[:BlockSize])
+			p = p[BlockSize:]
+		} else {
+			// Buffer until we have more than one chunk.
+			need := BlockSize + 1 - len(h.buf)
+			if need > len(p) {
+				// Not enough to enter tree mode; just buffer.
+				h.buf = append(h.buf, p...)
+				return n, nil
+			}
 
-		// Enter tree mode: flush S_0 from buf + start of p.
-		h.buf = append(h.buf, p[:need]...)
-		p = p[need:]
-		h.startTreeMode(h.buf[:BlockSize])
-		// Keep the one overflow byte.
-		h.buf[0] = h.buf[BlockSize]
-		h.buf = h.buf[:1]
+			// S_0 spans h.buf and p. Absorb exactly the bytes needed to complete
+			// it, leaving the overflow in p and reusing h.buf for leaf data.
+			nS0 := BlockSize - len(h.buf)
+			h.buf = append(h.buf, p[:nS0]...)
+			p = p[nS0:]
+			h.startTreeMode(h.buf)
+			h.buf = h.buf[:0]
+		}
 	}
 
 	lanes := availableLanes
 
 	// Large-write fast path: process chunks directly from p to avoid copying.
-	if len(p) > lanes*BlockSize {
+	if len(p) >= lanes*BlockSize {
 		// Drain any buffered data: flush complete blocks, then complete the
 		// partial tail with bytes from p.
 		if len(h.buf) > 0 {
@@ -106,9 +113,10 @@ func (h *Hasher) Write(p []byte) (int, error) {
 			}
 		}
 
-		// Process complete chunks directly from p, keeping at least 1 byte back.
+		// The customization suffix added at finalization is always non-empty, so
+		// complete message leaves do not need to be retained as lookahead.
 		for {
-			processable := (len(p) - 1) / BlockSize
+			processable := len(p) / BlockSize
 			nFlush := (processable / lanes) * lanes
 			if nFlush == 0 {
 				break
@@ -125,7 +133,7 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	// Streaming path: accumulate in buf, flush in SIMD-width batches.
 	h.buf = append(h.buf, p...)
 	for {
-		processable := (len(h.buf) - 1) / BlockSize
+		processable := len(h.buf) / BlockSize
 		nFlush := (processable / lanes) * lanes
 		if nFlush == 0 {
 			break

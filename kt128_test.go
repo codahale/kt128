@@ -390,6 +390,65 @@ func TestWritePartitionInvariance(t *testing.T) {
 	}
 }
 
+func TestWriteTreeModeBuffering(t *testing.T) {
+	t.Run("direct S0", func(t *testing.T) {
+		h := New()
+		_, _ = h.Write(ptn(BlockSize + 1))
+
+		if h.state != stateTree {
+			t.Fatalf("state = %d, want stateTree", h.state)
+		}
+		if len(h.buf) != 1 {
+			t.Fatalf("buffered bytes = %d, want 1", len(h.buf))
+		}
+		if cap(h.buf) >= BlockSize {
+			t.Fatalf("buffer capacity = %d, want less than one block", cap(h.buf))
+		}
+	})
+
+	t.Run("reuse buffered S0", func(t *testing.T) {
+		h := New()
+		_, _ = h.Write(ptn(BlockSize))
+		initialCap := cap(h.buf)
+		_, _ = h.Write([]byte{0xA5})
+
+		if h.state != stateTree {
+			t.Fatalf("state = %d, want stateTree", h.state)
+		}
+		if len(h.buf) != 1 {
+			t.Fatalf("buffered bytes = %d, want 1", len(h.buf))
+		}
+		if cap(h.buf) != initialCap {
+			t.Fatalf("buffer capacity grew from %d to %d", initialCap, cap(h.buf))
+		}
+	})
+
+	t.Run("flush exact lane batch", func(t *testing.T) {
+		h := New()
+		_, _ = h.Write(ptn(BlockSize + 1))
+		_, _ = h.Write(ptn(availableLanes*BlockSize - 1))
+
+		if h.leafCount != uint64(availableLanes) {
+			t.Fatalf("leaf count = %d, want %d", h.leafCount, availableLanes)
+		}
+		if len(h.buf) != 0 {
+			t.Fatalf("buffered bytes = %d, want 0", len(h.buf))
+		}
+	})
+
+	t.Run("process exact lane batch directly", func(t *testing.T) {
+		h := New()
+		_, _ = h.Write(ptn((availableLanes + 1) * BlockSize))
+
+		if h.leafCount != uint64(availableLanes) {
+			t.Fatalf("leaf count = %d, want %d", h.leafCount, availableLanes)
+		}
+		if cap(h.buf) != 0 {
+			t.Fatalf("buffer capacity = %d, want 0", cap(h.buf))
+		}
+	})
+}
+
 func BenchmarkWrite(b *testing.B) {
 	for _, size := range sizes {
 		b.Run(size.Name, func(b *testing.B) {
@@ -466,6 +525,7 @@ var sizes = []size{
 	{"8KiB+1B", BlockSize + 1},
 	{"32KiB", 32 * 1024},
 	{"64KiB", 64 * 1024},
+	{"72KiB", 9 * BlockSize},
 	{"1MiB", 1024 * 1024},
 	{"16MiB", 16 * 1024 * 1024},
 }
