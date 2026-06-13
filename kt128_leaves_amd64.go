@@ -24,3 +24,7 @@ func processLeavesArch(input []byte, cvs *[256]byte) bool {
 	}
 	return true
 }
+
+// processLeavesPairArch reports that no 2-wide pair kernel is available on
+// amd64; the padded x8 path drains high-utilization remainders instead.
+func processLeavesPairArch(_ []byte, _ *[256]byte) bool { return false }

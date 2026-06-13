@@ -1,6 +1,7 @@
 package kt128
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"testing"
@@ -48,6 +49,29 @@ func BenchmarkProcessLeaves(b *testing.B) {
 	b.SetBytes(8 * blockSize)
 	for b.Loop() {
 		processLeaves(input, &cvs)
+	}
+}
+
+// TestProcessLeavesPair checks the 2-wide pair kernel against the x1 leaf path.
+func TestProcessLeavesPair(t *testing.T) {
+	input := make([]byte, 2*BlockSize)
+	for i := range input {
+		input[i] = byte(i*31 + i>>7)
+	}
+
+	var got [256]byte
+	if !processLeavesPairArch(input, &got) {
+		t.Skip("no pair kernel on this platform")
+	}
+
+	for inst := range 2 {
+		var s sponge
+		leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
+		var want [256]byte
+		s.squeeze(want[:32])
+		if !bytes.Equal(got[inst*32:inst*32+32], want[:32]) {
+			t.Errorf("instance %d: got %x, want %x", inst, got[inst*32:inst*32+32], want[:32])
+		}
 	}
 }
 

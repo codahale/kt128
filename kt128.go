@@ -149,7 +149,21 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 		idx += 8
 	}
 
-	// Remainder: pad to 8 and use fused path when utilization is high enough.
+	// Drain a 2..7 leaf remainder in native 2-wide pairs where a pair kernel
+	// exists (arm64), reading directly from the input with no scratch buffer.
+	// Padding to 8 here would copy and zero a 64 KiB buffer only to discard the
+	// unused lanes' output.
+	for idx+2 <= nLeaves {
+		off := idx * BlockSize
+		if !processLeavesPairArch(data[off:off+2*BlockSize], &cvs) {
+			break
+		}
+		h.final.absorbCVs(cvs[:64])
+		idx += 2
+	}
+
+	// Padded x8 fallback for platforms without a pair kernel (amd64/other): pad
+	// to 8 and use the fused path when utilization is high enough.
 	if rem := nLeaves - idx; rem >= 5 {
 		off := idx * BlockSize
 		var padData [8 * BlockSize]byte
@@ -159,7 +173,8 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 		idx += rem
 	}
 
-	// Small remainder via x1.
+	// Small remainder via x1: a single leftover leaf after the pair pass, or a
+	// 1..4 leaf remainder on platforms without a pair kernel.
 	for idx < nLeaves {
 		var s1 sponge
 		off := idx * BlockSize
