@@ -28,11 +28,19 @@ jobs:
         - ubuntu-24.04
         - ubuntu-24.04-arm
         config:
-        - { name: "Standard", tags: "", flags: "-race" }
-        - { name: "Pure Go",  tags: "purego", flags: "" }
+        # "No AVX-512" forces the AVX2 leaf kernels at compile time (the cpuid
+        # detection asm is dropped and HasAVX512 is a hardcoded false), so it
+        # needs no emulator; expect "0" makes TestExpectedISA confirm the tag
+        # actually disabled AVX-512.
+        - { name: "Standard",   tags: "",                     flags: "-race", expect: "" }
+        - { name: "Pure Go",    tags: "purego",               flags: "",      expect: "" }
+        - { name: "No AVX-512", tags: "kt128_disable_avx512", flags: "-race", expect: "0" }
         exclude:
+          # Pure Go and the amd64-only disable tag add nothing on arm64.
           - os: ubuntu-24.04-arm
-            config: { name: "Pure Go", tags: "purego", flags: "" }
+            config: { name: "Pure Go",    tags: "purego",               flags: "",      expect: "" }
+          - os: ubuntu-24.04-arm
+            config: { name: "No AVX-512", tags: "kt128_disable_avx512", flags: "-race", expect: "0" }
     runs-on: ${{ matrix.os }}
     steps:
     - name: Checkout
@@ -48,7 +56,45 @@ jobs:
       run: go build -tags "${{ matrix.config.tags }}" ./...
 
     - name: Test
+      env:
+        KT128_EXPECT_AVX512: ${{ matrix.config.expect }}
       run: go test ${{ matrix.config.flags }} -tags "${{ matrix.config.tags }}" ./...
+
+  sde:
+    name: SDE (${{ matrix.target.name }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+        # Emulate a CPU with AVX-512F+VL (Skylake-X) and one with AVX2 but no
+        # AVX-512 (Haswell) so both leaf-kernel families run regardless of the
+        # GitHub runner's actual CPU. KT128_EXPECT_AVX512 makes the binary assert
+        # it took the intended path; see TestExpectedISA.
+        - { name: "AVX-512 (skx)", chip: "skx", expect: "1" }
+        - { name: "AVX2 (hsw)",    chip: "hsw", expect: "0" }
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: 'stable'
+        cache: true
+
+    - name: Setup SDE
+      uses: petarpetrovt/setup-sde@v5.0
+
+    # Compile natively, then emulate only the test binary so SDE never has to run
+    # the Go toolchain.
+    - name: Build test binary
+      run: go test -c -o kt128.test .
+
+    - name: Test under SDE
+      env:
+        KT128_EXPECT_AVX512: ${{ matrix.target.expect }}
+      run: $SDE_PATH/sde64 -${{ matrix.target.chip }} -- ./kt128.test -test.v -test.timeout 20m
 
   lint:
     name: Lint
