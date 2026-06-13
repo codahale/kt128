@@ -184,6 +184,152 @@ leaves_avx512_loop:
 	RET
 
 
+// func processLeavesRunAVX512(input *byte, cvs *byte, n uint64)
+//
+// Direct-read remainder kernel: processes n (2..7) contiguous 8192-byte chunks
+// in a single 8-wide pass, writing n×32-byte CVs to cvs. The gather index vector
+// maps lanes 0..n-1 to their chunks and clamps lanes n..7 to chunk 0, so the
+// dummy lanes read in-bounds memory (recomputing chunk 0's CV, which is
+// discarded). This drains a 2..7 leaf remainder without padding into and zeroing
+// a 64 KiB scratch buffer, and beats the serial x1 path for small remainders.
+//
+// Body mirrors processLeavesAVX512; only the gather index construction differs.
+// Frame: 64 bytes local (gather indices), 24 bytes args.
+TEXT ·processLeavesRunAVX512(SB), $64-24
+	MOVQ	input+0(FP), BX
+	MOVQ	cvs+8(FP), DI
+	MOVQ	n+16(FP), AX
+
+	// Build clamped gather index vector at SP+0: lane i = (i < n) ? i*8192 : 0.
+	// Lane 0 is always chunk 0; lanes n..7 fall back to chunk 0 (in-bounds).
+	MOVQ	$0, 0(SP)
+	MOVQ	$8192, R10;  XORQ R9, R9; CMPQ AX, $1; CMOVQGT R10, R9; MOVQ R9, 8(SP)
+	MOVQ	$16384, R10; XORQ R9, R9; CMPQ AX, $2; CMOVQGT R10, R9; MOVQ R9, 16(SP)
+	MOVQ	$24576, R10; XORQ R9, R9; CMPQ AX, $3; CMOVQGT R10, R9; MOVQ R9, 24(SP)
+	MOVQ	$32768, R10; XORQ R9, R9; CMPQ AX, $4; CMOVQGT R10, R9; MOVQ R9, 32(SP)
+	MOVQ	$40960, R10; XORQ R9, R9; CMPQ AX, $5; CMOVQGT R10, R9; MOVQ R9, 40(SP)
+	MOVQ	$49152, R10; XORQ R9, R9; CMPQ AX, $6; CMOVQGT R10, R9; MOVQ R9, 48(SP)
+	MOVQ	$57344, R10; XORQ R9, R9; CMPQ AX, $7; CMOVQGT R10, R9; MOVQ R9, 56(SP)
+
+	// Zero state Z0-Z24.
+	VPXORQ	Z0, Z0, Z0
+	VPXORQ	Z1, Z1, Z1
+	VPXORQ	Z2, Z2, Z2
+	VPXORQ	Z3, Z3, Z3
+	VPXORQ	Z4, Z4, Z4
+	VPXORQ	Z5, Z5, Z5
+	VPXORQ	Z6, Z6, Z6
+	VPXORQ	Z7, Z7, Z7
+	VPXORQ	Z8, Z8, Z8
+	VPXORQ	Z9, Z9, Z9
+	VPXORQ	Z10, Z10, Z10
+	VPXORQ	Z11, Z11, Z11
+	VPXORQ	Z12, Z12, Z12
+	VPXORQ	Z13, Z13, Z13
+	VPXORQ	Z14, Z14, Z14
+	VPXORQ	Z15, Z15, Z15
+	VPXORQ	Z16, Z16, Z16
+	VPXORQ	Z17, Z17, Z17
+	VPXORQ	Z18, Z18, Z18
+	VPXORQ	Z19, Z19, Z19
+	VPXORQ	Z20, Z20, Z20
+	VPXORQ	Z21, Z21, Z21
+	VPXORQ	Z22, Z22, Z22
+	VPXORQ	Z23, Z23, Z23
+	VPXORQ	Z24, Z24, Z24
+
+	MOVQ	$48, R12
+
+leaves_run_avx512_loop:
+	VMOVDQU64	0(SP), Z28
+
+	ABSORB_LANE_X8_GATHER(0*8, Z0)
+	ABSORB_LANE_X8_GATHER(1*8, Z1)
+	ABSORB_LANE_X8_GATHER(2*8, Z2)
+	ABSORB_LANE_X8_GATHER(3*8, Z3)
+	ABSORB_LANE_X8_GATHER(4*8, Z4)
+	ABSORB_LANE_X8_GATHER(5*8, Z5)
+	ABSORB_LANE_X8_GATHER(6*8, Z6)
+	ABSORB_LANE_X8_GATHER(7*8, Z7)
+	ABSORB_LANE_X8_GATHER(8*8, Z8)
+	ABSORB_LANE_X8_GATHER(9*8, Z9)
+	ABSORB_LANE_X8_GATHER(10*8, Z10)
+	ABSORB_LANE_X8_GATHER(11*8, Z11)
+	ABSORB_LANE_X8_GATHER(12*8, Z12)
+	ABSORB_LANE_X8_GATHER(13*8, Z13)
+	ABSORB_LANE_X8_GATHER(14*8, Z14)
+	ABSORB_LANE_X8_GATHER(15*8, Z15)
+	ABSORB_LANE_X8_GATHER(16*8, Z16)
+	ABSORB_LANE_X8_GATHER(17*8, Z17)
+	ABSORB_LANE_X8_GATHER(18*8, Z18)
+	ABSORB_LANE_X8_GATHER(19*8, Z19)
+	ABSORB_LANE_X8_GATHER(20*8, Z20)
+
+	LEAQ	kt128_round_consts_2x+192(SB), R11
+	X8_4ROUNDS_AVX512(0, 16, 32, 48)
+	X8_4ROUNDS_AVX512(64, 80, 96, 112)
+	X8_4ROUNDS_AVX512(128, 144, 160, 176)
+
+	ADDQ	$168, BX
+	SUBQ	$1, R12
+	JNZ	leaves_run_avx512_loop
+
+	// Absorb final 16 lanes (128-byte remainder).
+	VMOVDQU64	0(SP), Z28
+	ABSORB_LANE_X8_GATHER(0*8, Z0)
+	ABSORB_LANE_X8_GATHER(1*8, Z1)
+	ABSORB_LANE_X8_GATHER(2*8, Z2)
+	ABSORB_LANE_X8_GATHER(3*8, Z3)
+	ABSORB_LANE_X8_GATHER(4*8, Z4)
+	ABSORB_LANE_X8_GATHER(5*8, Z5)
+	ABSORB_LANE_X8_GATHER(6*8, Z6)
+	ABSORB_LANE_X8_GATHER(7*8, Z7)
+	ABSORB_LANE_X8_GATHER(8*8, Z8)
+	ABSORB_LANE_X8_GATHER(9*8, Z9)
+	ABSORB_LANE_X8_GATHER(10*8, Z10)
+	ABSORB_LANE_X8_GATHER(11*8, Z11)
+	ABSORB_LANE_X8_GATHER(12*8, Z12)
+	ABSORB_LANE_X8_GATHER(13*8, Z13)
+	ABSORB_LANE_X8_GATHER(14*8, Z14)
+	ABSORB_LANE_X8_GATHER(15*8, Z15)
+
+	// XOR padding: DS=0x0B into lane 16, pad10*1 end 0x80 into lane 20.
+	VPBROADCASTQ_IMM_0x0B(Z25)
+	VPXORQ	Z25, Z16, Z16
+	VPBROADCASTQ_IMM_0x80_HIGH(Z25)
+	VPXORQ	Z25, Z20, Z20
+
+	// Final permutation.
+	LEAQ	kt128_round_consts_2x+192(SB), R11
+	X8_4ROUNDS_AVX512(0, 16, 32, 48)
+	X8_4ROUNDS_AVX512(64, 80, 96, 112)
+	X8_4ROUNDS_AVX512(128, 144, 160, 176)
+
+	// Extract CVs via VPSCATTERQQ. All 8 lanes are scattered into the 256-byte
+	// cvs buffer; the caller reads only the first n.
+	MOVQ	$0, 0(SP)
+	MOVQ	$32, 8(SP)
+	MOVQ	$64, 16(SP)
+	MOVQ	$96, 24(SP)
+	MOVQ	$128, 32(SP)
+	MOVQ	$160, 40(SP)
+	MOVQ	$192, 48(SP)
+	MOVQ	$224, 56(SP)
+	VMOVDQU64	0(SP), Z28
+
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z0, K1, 0(DI)(Z28*1)
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z1, K1, 8(DI)(Z28*1)
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z2, K1, 16(DI)(Z28*1)
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z3, K1, 24(DI)(Z28*1)
+
+	VZEROUPPER
+	RET
+
+
 // ABSORB_LANE_X4 XORs lane i from 4 input pointers into the state buffer.
 // AX=in0, CX=in1, DX=in2, BX=in3, R8=state buffer.
 #define ABSORB_LANE_X4(i) \
@@ -549,6 +695,195 @@ leaves_avx2_final_round_b:
 	VMOVDQU	Y1, 5*32(DI)
 	VMOVDQU	Y2, 6*32(DI)
 	VMOVDQU	Y3, 7*32(DI)
+
+	VZEROUPPER
+	RET
+
+
+// func processLeavesQuadAVX2(in0, in1, in2, in3, cvs *byte)
+//
+// Processes 4 chunks read from four independent pointers via one x4 AVX2 pass,
+// writing 4 × 32-byte CVs to cvs. This is one half of processLeavesAVX2 factored
+// out so the remainder path can drain leaves directly from the input: the caller
+// points dummy lanes at an in-bounds chunk and reads only the live CVs. Pointers
+// need not be contiguous, so a 2..7 leaf remainder runs as one or two x4 passes
+// with no padded scratch buffer.
+//
+// Frame: 1648 bytes local (0-799 = buffer A, 800-1599 = buffer B, 1600-1647 =
+//        4 input ptrs + count + output ptr), 40 bytes args.
+TEXT ·processLeavesQuadAVX2(SB), $1648-40
+	MOVQ	in0+0(FP), AX
+	MOVQ	AX, 1600(SP)
+	MOVQ	in1+8(FP), R10
+	MOVQ	R10, 1608(SP)
+	MOVQ	in2+16(FP), R10
+	MOVQ	R10, 1616(SP)
+	MOVQ	in3+24(FP), R10
+	MOVQ	R10, 1624(SP)
+	MOVQ	cvs+32(FP), R10
+	MOVQ	R10, 1640(SP)
+	MOVQ	$48, 1632(SP)
+
+	// Zero buffer A (25 lanes × 32 bytes = 800 bytes).
+	VPXOR	Y0, Y0, Y0
+	VMOVDQU	Y0, 0*32(SP)
+	VMOVDQU	Y0, 1*32(SP)
+	VMOVDQU	Y0, 2*32(SP)
+	VMOVDQU	Y0, 3*32(SP)
+	VMOVDQU	Y0, 4*32(SP)
+	VMOVDQU	Y0, 5*32(SP)
+	VMOVDQU	Y0, 6*32(SP)
+	VMOVDQU	Y0, 7*32(SP)
+	VMOVDQU	Y0, 8*32(SP)
+	VMOVDQU	Y0, 9*32(SP)
+	VMOVDQU	Y0, 10*32(SP)
+	VMOVDQU	Y0, 11*32(SP)
+	VMOVDQU	Y0, 12*32(SP)
+	VMOVDQU	Y0, 13*32(SP)
+	VMOVDQU	Y0, 14*32(SP)
+	VMOVDQU	Y0, 15*32(SP)
+	VMOVDQU	Y0, 16*32(SP)
+	VMOVDQU	Y0, 17*32(SP)
+	VMOVDQU	Y0, 18*32(SP)
+	VMOVDQU	Y0, 19*32(SP)
+	VMOVDQU	Y0, 20*32(SP)
+	VMOVDQU	Y0, 21*32(SP)
+	VMOVDQU	Y0, 22*32(SP)
+	VMOVDQU	Y0, 23*32(SP)
+	VMOVDQU	Y0, 24*32(SP)
+
+leaves_quad_avx2_loop:
+	CMPQ	1632(SP), $0
+	JEQ	leaves_quad_avx2_final
+
+	LEAQ	0(SP), R8
+	MOVQ	1600(SP), AX
+	MOVQ	1608(SP), CX
+	MOVQ	1616(SP), DX
+	MOVQ	1624(SP), BX
+
+	ABSORB_LANE_X4(0)
+	ABSORB_LANE_X4(1)
+	ABSORB_LANE_X4(2)
+	ABSORB_LANE_X4(3)
+	ABSORB_LANE_X4(4)
+	ABSORB_LANE_X4(5)
+	ABSORB_LANE_X4(6)
+	ABSORB_LANE_X4(7)
+	ABSORB_LANE_X4(8)
+	ABSORB_LANE_X4(9)
+	ABSORB_LANE_X4(10)
+	ABSORB_LANE_X4(11)
+	ABSORB_LANE_X4(12)
+	ABSORB_LANE_X4(13)
+	ABSORB_LANE_X4(14)
+	ABSORB_LANE_X4(15)
+	ABSORB_LANE_X4(16)
+	ABSORB_LANE_X4(17)
+	ABSORB_LANE_X4(18)
+	ABSORB_LANE_X4(19)
+	ABSORB_LANE_X4(20)
+
+	ADDQ	$168, AX
+	ADDQ	$168, CX
+	ADDQ	$168, DX
+	ADDQ	$168, BX
+	MOVQ	AX, 1600(SP)
+	MOVQ	CX, 1608(SP)
+	MOVQ	DX, 1616(SP)
+	MOVQ	BX, 1624(SP)
+	SUBQ	$1, 1632(SP)
+
+	LEAQ	0(SP), R8
+	LEAQ	800(SP), R9
+	LEAQ	kt128_round_consts_4x+384(SB), R11
+	MOVQ	$12, R10
+
+	PCALIGN	$16
+leaves_quad_avx2_round:
+	X4_KECCAK_ROUND
+	XCHGQ	R8, R9
+	ADDQ	$32, R11
+	SUBQ	$1, R10
+	JNZ	leaves_quad_avx2_round
+
+	JMP	leaves_quad_avx2_loop
+
+leaves_quad_avx2_final:
+	// Absorb final 16 lanes.
+	LEAQ	0(SP), R8
+	MOVQ	1600(SP), AX
+	MOVQ	1608(SP), CX
+	MOVQ	1616(SP), DX
+	MOVQ	1624(SP), BX
+
+	ABSORB_LANE_X4(0)
+	ABSORB_LANE_X4(1)
+	ABSORB_LANE_X4(2)
+	ABSORB_LANE_X4(3)
+	ABSORB_LANE_X4(4)
+	ABSORB_LANE_X4(5)
+	ABSORB_LANE_X4(6)
+	ABSORB_LANE_X4(7)
+	ABSORB_LANE_X4(8)
+	ABSORB_LANE_X4(9)
+	ABSORB_LANE_X4(10)
+	ABSORB_LANE_X4(11)
+	ABSORB_LANE_X4(12)
+	ABSORB_LANE_X4(13)
+	ABSORB_LANE_X4(14)
+	ABSORB_LANE_X4(15)
+
+	// XOR padding: DS=0x0B into lane 16 (all 4 instances), pad end into lane 20.
+	LEAQ	0(SP), R8
+	MOVQ	$0x0B, R10
+	XORQ	R10, 16*32+0(R8)
+	XORQ	R10, 16*32+8(R8)
+	XORQ	R10, 16*32+16(R8)
+	XORQ	R10, 16*32+24(R8)
+	MOVQ	$0x8000000000000000, R10
+	XORQ	R10, 20*32+0(R8)
+	XORQ	R10, 20*32+8(R8)
+	XORQ	R10, 20*32+16(R8)
+	XORQ	R10, 20*32+24(R8)
+
+	// Final permutation.
+	LEAQ	0(SP), R8
+	LEAQ	800(SP), R9
+	LEAQ	kt128_round_consts_4x+384(SB), R11
+	MOVQ	$12, R10
+
+	PCALIGN	$16
+leaves_quad_avx2_final_round:
+	X4_KECCAK_ROUND
+	XCHGQ	R8, R9
+	ADDQ	$32, R11
+	SUBQ	$1, R10
+	JNZ	leaves_quad_avx2_final_round
+
+	// Extract 4 CVs via UNPACK+PERM128 transpose.
+	MOVQ	1640(SP), DI
+	LEAQ	0(SP), R8
+
+	VMOVDQU	0*32(R8), Y0	// lane 0: {i0, i1, i2, i3}
+	VMOVDQU	1*32(R8), Y1	// lane 1
+	VMOVDQU	2*32(R8), Y2	// lane 2
+	VMOVDQU	3*32(R8), Y3	// lane 3
+
+	VPUNPCKLQDQ	Y1, Y0, Y4
+	VPUNPCKHQDQ	Y1, Y0, Y5
+	VPUNPCKLQDQ	Y3, Y2, Y6
+	VPUNPCKHQDQ	Y3, Y2, Y7
+
+	VPERM2F128	$0x20, Y6, Y4, Y0	// inst0 CV
+	VPERM2F128	$0x20, Y7, Y5, Y1	// inst1 CV
+	VPERM2F128	$0x31, Y6, Y4, Y2	// inst2 CV
+	VPERM2F128	$0x31, Y7, Y5, Y3	// inst3 CV
+
+	VMOVDQU	Y0, 0*32(DI)
+	VMOVDQU	Y1, 1*32(DI)
+	VMOVDQU	Y2, 2*32(DI)
+	VMOVDQU	Y3, 3*32(DI)
 
 	VZEROUPPER
 	RET

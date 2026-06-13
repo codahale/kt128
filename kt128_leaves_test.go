@@ -75,6 +75,32 @@ func TestProcessLeavesPair(t *testing.T) {
 	}
 }
 
+// TestProcessLeavesRun checks the direct-read run kernel against the x1 leaf
+// path for every remainder size it handles.
+func TestProcessLeavesRun(t *testing.T) {
+	for n := 2; n <= 7; n++ {
+		input := make([]byte, n*BlockSize)
+		for i := range input {
+			input[i] = byte(i*53 + i>>9)
+		}
+
+		var got [256]byte
+		if !processLeavesRunArch(input, n, &got) {
+			t.Skipf("no run kernel on this platform")
+		}
+
+		for inst := range n {
+			var s sponge
+			leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
+			var want [256]byte
+			s.squeeze(want[:32])
+			if !bytes.Equal(got[inst*32:inst*32+32], want[:32]) {
+				t.Errorf("n=%d instance %d: got %x, want %x", n, inst, got[inst*32:inst*32+32], want[:32])
+			}
+		}
+	}
+}
+
 // BenchmarkLeafBatchRemainder measures processLeafBatch for the leftover-leaf
 // counts that hit the remainder path during finalization.
 func BenchmarkLeafBatchRemainder(b *testing.B) {

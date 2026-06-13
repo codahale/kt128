@@ -162,8 +162,15 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 		idx += 2
 	}
 
-	// Padded x8 fallback for platforms without a pair kernel (amd64/other): pad
-	// to 8 and use the fused path when utilization is high enough.
+	// Drain a 2..7 leaf remainder in one direct-read masked-gather pass where a
+	// run kernel exists (amd64 AVX-512), again with no scratch buffer.
+	if rem := nLeaves - idx; rem >= 2 && processLeavesRunArch(data[idx*BlockSize:nLeaves*BlockSize], rem, &cvs) {
+		h.final.absorbCVs(cvs[:rem*32])
+		idx += rem
+	}
+
+	// Padded x8 fallback for platforms without a pair or run kernel (amd64 AVX2,
+	// other): pad to 8 and use the fused path when utilization is high enough.
 	if rem := nLeaves - idx; rem >= 5 {
 		off := idx * BlockSize
 		var padData [8 * BlockSize]byte
