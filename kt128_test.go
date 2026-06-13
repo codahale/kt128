@@ -437,6 +437,46 @@ func TestWritePartitionInvariance(t *testing.T) {
 	}
 }
 
+// TestReadPartitionInvariance verifies that XOF output is independent of how it
+// is split across Read calls. A single Read squeezes lane-aligned, but resuming
+// after a short Read leaves the sponge mid-lane, so this is the only thing that
+// exercises squeeze's off != 0 branch and its permute-mid-Read path. outLen is
+// neither a multiple of 8 nor of the rate (168), and the chunk sizes straddle
+// both boundaries, so reads resume at every alignment.
+func TestReadPartitionInvariance(t *testing.T) {
+	const outLen = 1000
+
+	// Single-node, chunk-boundary, and tree-mode messages give the final sponge
+	// different contents to squeeze from.
+	msgs := []int{0, 1, BlockSize - 1, BlockSize, BlockSize + 1, 9 * BlockSize}
+	chunks := []int{1, 2, 3, 7, 8, 9, 167, 168, 169, 333}
+
+	for _, msgLen := range msgs {
+		msg := ptn(msgLen)
+
+		// Reference: one Read of the whole output.
+		ref := New()
+		_, _ = ref.Write(msg)
+		want := make([]byte, outLen)
+		_, _ = ref.Read(want)
+
+		for _, chunk := range chunks {
+			h := New()
+			_, _ = h.Write(msg)
+			got := make([]byte, outLen)
+			for off := 0; off < outLen; off += chunk {
+				end := min(off+chunk, outLen)
+				if _, err := h.Read(got[off:end]); err != nil {
+					t.Fatalf("Read: %v", err)
+				}
+			}
+			if !bytes.Equal(got, want) {
+				t.Errorf("msgLen=%d chunk=%d: output depends on read partitioning", msgLen, chunk)
+			}
+		}
+	}
+}
+
 func TestWriteTreeModeBuffering(t *testing.T) {
 	t.Run("direct S0", func(t *testing.T) {
 		h := New()
