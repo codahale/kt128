@@ -280,6 +280,33 @@ func TestEqual(t *testing.T) {
 			t.Fatal("diverged clone should not be equal")
 		}
 	})
+
+	t.Run("different customization", func(t *testing.T) {
+		// The customization string is only absorbed at finalization, but it
+		// still distinguishes two otherwise-identical hashers: they would
+		// produce different output, so they must not compare equal.
+		h1 := New([]byte("alpha"))
+		_, _ = h1.Write(ptn(100))
+
+		h2 := New([]byte("beta"))
+		_, _ = h2.Write(ptn(100))
+
+		if h1.Equal(h2) != 0 {
+			t.Fatal("hashers with different customization strings should not be equal")
+		}
+	})
+
+	t.Run("same customization", func(t *testing.T) {
+		h1 := New([]byte("alpha"))
+		_, _ = h1.Write(ptn(100))
+
+		h2 := New([]byte("alpha"))
+		_, _ = h2.Write(ptn(100))
+
+		if h1.Equal(h2) != 1 {
+			t.Fatal("hashers with the same customization string should be equal")
+		}
+	})
 }
 
 func TestPos(t *testing.T) {
