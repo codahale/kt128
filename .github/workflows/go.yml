@@ -178,3 +178,21 @@ jobs:
 
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v9
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: 'stable'
+        cache: true
+
+    # No third-party deps, so this mainly catches standard-library and toolchain
+    # vulnerabilities for the Go version in use.
+    - name: govulncheck
+      run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
