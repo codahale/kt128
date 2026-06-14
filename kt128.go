@@ -1,8 +1,11 @@
 // Package kt128 implements KT128 (KangarooTwelve) as specified in RFC 9861.
 //
 // KT128 is a tree-hash eXtendable-Output Function (XOF) built on TurboSHAKE128.
-// For messages larger than 8192 bytes, it splits input into chunks and computes
-// leaf chain values in parallel using SIMD-accelerated Keccak permutations.
+// When the input (the message plus the customization string and its length
+// encoding) exceeds one 8192-byte chunk, it splits the input into chunks and
+// computes a leaf chain value from each. On amd64 and arm64 the leaves are
+// computed in parallel using SIMD-accelerated Keccak permutations; other
+// targets and the purego build use a scalar fallback.
 package kt128
 
 import (
@@ -44,6 +47,8 @@ func New(c []byte) *Hasher {
 	return &Hasher{c: slices.Clone(c)}
 }
 
+// BlockSize returns the KT128 chunk size in bytes (8192). Writes need not be a
+// multiple of this size.
 func (h *Hasher) BlockSize() int {
 	return BlockSize
 }
@@ -53,7 +58,8 @@ func (h *Hasher) Pos() uint64 {
 	return h.pos
 }
 
-// Write absorbs message bytes. It must not be called after Read or Sum.
+// Write absorbs message bytes. It panics if called after Read, which finalizes
+// the hasher.
 func (h *Hasher) Write(p []byte) (int, error) {
 	if h.state == stateFinalized {
 		panic("kt128: Hasher is finalized")

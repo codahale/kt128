@@ -8,7 +8,7 @@ arbitrary-length output, customization strings, and optimized tree hashing for l
 ## Highlights
 
 - Implements KT128 as a streaming `hash.XOF`.
-- Switches to tree mode for messages larger than 8192 bytes.
+- Switches to tree mode once the input exceeds one 8192-byte chunk.
 - Uses optimized assembly on `amd64` and `arm64`.
 - Falls back to pure Go on other targets, or with `-tags purego`.
 - Exposes `Clone`, `Reset`, `Equal`, and `Pos` helpers.
@@ -63,8 +63,8 @@ _, _ = h.Read(out)
 
 ## Performance Notes
 
-For messages larger than one 8 KiB KT128 chunk, the implementation switches to tree hashing. Leaf compression is
-processed in parallel:
+Once the input (the message plus the customization string and its length encoding) exceeds one 8 KiB KT128 chunk, the
+implementation switches to tree hashing. Leaf compression is processed in parallel:
 
 - `amd64`: AVX2, with AVX-512 when available (use the `kt128_disable_avx512` build tag to disable AVX-512)
 - `arm64`: optimized assembly path
@@ -77,7 +77,7 @@ processed in parallel:
 - `Read(dst)` squeezes output into `dst`.
 - `Clone` copies the current state so both hashers can evolve independently.
 - `Reset` clears the hasher for reuse.
-- `Equal` compares two hasher states in constant time.
+- `Equal` reports whether two hashers have identical state, returning 1 if equal and 0 otherwise, in constant time.
 - `Pos` returns the number of bytes written so far.
 
 ## License
