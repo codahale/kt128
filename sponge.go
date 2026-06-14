@@ -151,30 +151,6 @@ func (s *sponge) padPermute(ds byte) {
 	s.pos = 0
 }
 
-func (s *sponge) equal(other *sponge) int {
-	var acc uint64
-	for i := range lanes {
-		acc |= s.a[i] ^ other.a[i]
-	}
-	acc |= acc >> 32
-	acc |= acc >> 16
-	acc |= acc >> 8
-	acc |= acc >> 4
-	acc |= acc >> 2
-	acc |= acc >> 1
-	lanesEq := int(1 - (acc & 1))
-
-	posAcc := s.pos ^ other.pos
-	posAcc |= posAcc >> 16
-	posAcc |= posAcc >> 8
-	posAcc |= posAcc >> 4
-	posAcc |= posAcc >> 2
-	posAcc |= posAcc >> 1
-	posEq := 1 - (posAcc & 1)
-
-	return lanesEq & posEq
-}
-
 func (s *sponge) squeeze(dst []byte) {
 	for len(dst) > 0 {
 		if s.pos == rate {

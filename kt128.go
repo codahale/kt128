@@ -255,21 +255,11 @@ func (h *Hasher) Reset() {
 }
 
 // Equal returns 1 if h and other represent identical states, 0 otherwise.
-// Two hashers are equal only if they share the same customization string, so
-// hashers built with different New arguments never compare equal even before
-// finalization. The comparison is constant-time with respect to the
-// customization string, buffered data, and the underlying sponge state.
 func (h *Hasher) Equal(other *Hasher) int {
-	eq := h.final.equal(&other.final)
-	eq &= subtle.ConstantTimeCompare(h.c, other.c)
-	eq &= subtle.ConstantTimeCompare(h.buf, other.buf)
-	eq &= subtle.ConstantTimeEq(int32(h.pos>>32), int32(other.pos>>32))
-	eq &= subtle.ConstantTimeEq(int32(h.pos), int32(other.pos))
-	eq &= subtle.ConstantTimeEq(int32(h.leafCount>>32), int32(other.leafCount>>32))
-	eq &= subtle.ConstantTimeEq(int32(h.leafCount), int32(other.leafCount))
-	eq &= subtle.ConstantTimeByteEq(h.ds, other.ds)
-	eq &= subtle.ConstantTimeByteEq(h.state, other.state)
-	return eq
+	var a, b [32]byte
+	_, _ = h.Clone().Read(a[:])
+	_, _ = other.Clone().Read(b[:])
+	return subtle.ConstantTimeCompare(a[:], b[:])
 }
 
 // customSuffix appends C || length_encode(|C|) to dst and returns the result.
