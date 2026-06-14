@@ -36,7 +36,7 @@ import (
 )
 
 func main() {
-	h := kt128.New(nil)
+	h := kt128.New()
 	_, _ = h.Write([]byte("hello, world"))
 
 	out := make([]byte, 32)
@@ -51,12 +51,12 @@ XOF, you choose the output length by the size of the destination buffer.
 
 ## Customization
 
-Pass a customization string to `New`:
+Set a customization string before writing any data:
 
 ```go
-message := []byte("hello, world")
-h := kt128.New([]byte("example-domain"))
-_, _ = h.Write(message)
+h := kt128.New()
+h.SetCustomizationString([]byte("example-domain"))
+_, _ = h.Write([]byte("hello, world"))
 
 out := make([]byte, 64)
 _, _ = h.Read(out)
@@ -73,7 +73,8 @@ processed in parallel:
 
 ## API Notes
 
-- `New(c []byte)` creates a new hasher with customization string `c`.
+- `New()` creates a new hasher.
+- `SetCustomizationString(c)` sets the customization string; call it before `Write`.
 - `Write` absorbs message bytes.
 - `Read(dst)` squeezes output into `dst`.
 - `Clone` copies the current state so both hashers can evolve independently.
