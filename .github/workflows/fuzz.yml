@@ -34,11 +34,11 @@ jobs:
         - { name: "P1600 (arm64)",  os: ubuntu-24.04-arm, target: FuzzP1600,               chip: "" }
         - { name: "Absorb (arm64)", os: ubuntu-24.04-arm, target: FuzzFastLoopAbsorb168x1, chip: "" }
         # The AVX-512 kernels only run on an AVX-512 CPU, so fuzz them under SDE
-        # (Skylake-X). FuzzHasher drives the AVX-512 leaf kernels end-to-end; the
-        # other two exercise the AVX-512 permute/absorb primitives directly.
-        - { name: "Hasher (skx)",   os: ubuntu-24.04,     target: FuzzHasher,                    chip: skx }
-        - { name: "P1600 (skx)",    os: ubuntu-24.04,     target: FuzzP1600AVX512,               chip: skx }
-        - { name: "Absorb (skx)",   os: ubuntu-24.04,     target: FuzzFastLoopAbsorb168x1AVX512, chip: skx }
+        # (Sapphire Rapids). FuzzHasher drives the AVX-512 leaf kernels end-to-end;
+        # the other two exercise the AVX-512 permute/absorb primitives directly.
+        - { name: "Hasher (spr)",   os: ubuntu-24.04,     target: FuzzHasher,                    chip: spr }
+        - { name: "P1600 (spr)",    os: ubuntu-24.04,     target: FuzzP1600AVX512,               chip: spr }
+        - { name: "Absorb (spr)",   os: ubuntu-24.04,     target: FuzzFastLoopAbsorb168x1AVX512, chip: spr }
     steps:
     - name: Checkout
       uses: actions/checkout@v6

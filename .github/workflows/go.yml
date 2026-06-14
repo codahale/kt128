@@ -67,11 +67,12 @@ jobs:
       fail-fast: false
       matrix:
         target:
-        # Emulate a CPU with AVX-512F+VL (Skylake-X) and one with AVX2 but no
-        # AVX-512 (Haswell) so both leaf-kernel families run regardless of the
-        # GitHub runner's actual CPU. KT128_EXPECT_AVX512 makes the binary assert
-        # it took the intended path; see TestExpectedISA.
-        - { name: "AVX-512 (skx)", chip: "skx", expect: "1" }
+        # Emulate a CPU with AVX-512F+VL (Sapphire Rapids) and one with AVX2 but
+        # no AVX-512 (Haswell) so both leaf-kernel families run regardless of the
+        # GitHub runner's actual CPU. spr is the most modern model SDE emulates
+        # and closest to deployed AVX-512 hardware. KT128_EXPECT_AVX512 makes the
+        # binary assert it took the intended path; see TestExpectedISA.
+        - { name: "AVX-512 (spr)", chip: "spr", expect: "1" }
         - { name: "AVX2 (hsw)",    chip: "hsw", expect: "0" }
     steps:
     - name: Checkout
