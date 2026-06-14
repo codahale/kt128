@@ -16,32 +16,21 @@ func mustPanic(t *testing.T, want string, fn func()) {
 	fn()
 }
 
-// TestPanics covers the package's documented panic contracts. The fifth panic,
-// "invalid final tail length" in absorbAll, is an unreachable defensive
-// assertion: fastLoopAbsorb168 always consumes a whole number of rate-sized
-// blocks, so the remaining tail is always shorter than the rate. There is no
-// input that triggers it without a bug in fastLoopAbsorb168 itself, so it is not
-// exercised here.
+// TestPanics covers the package's reachable panic contracts. The "invalid final
+// tail length" panic in absorbAll is an unreachable defensive assertion:
+// fastLoopAbsorb168 always consumes a whole number of rate-sized blocks, so the
+// remaining tail is always shorter than the rate. There is no input that
+// triggers it without a bug in fastLoopAbsorb168 itself, so it is not exercised
+// here.
 func TestPanics(t *testing.T) {
 	// Writing after finalization (the first Read) is forbidden.
 	t.Run("write after finalize", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		if _, err := h.Read(make([]byte, 32)); err != nil {
 			t.Fatalf("Read: %v", err)
 		}
 		mustPanic(t, "kt128: Hasher is finalized", func() {
 			_, _ = h.Write([]byte("x"))
-		})
-	})
-
-	// Setting the customization string after finalization is forbidden.
-	t.Run("set customization after finalize", func(t *testing.T) {
-		h := New()
-		if _, err := h.Read(make([]byte, 32)); err != nil {
-			t.Fatalf("Read: %v", err)
-		}
-		mustPanic(t, "kt128: Hasher is finalized", func() {
-			h.SetCustomizationString([]byte("x"))
 		})
 	})
 

@@ -110,7 +110,7 @@ func BenchmarkLeafBatchRemainder(b *testing.B) {
 			for i := range input {
 				input[i] = byte(i)
 			}
-			h := New()
+			h := New(nil)
 			h.state = stateTree
 			b.SetBytes(int64(n * BlockSize))
 			for b.Loop() {

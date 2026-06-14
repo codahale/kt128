@@ -161,8 +161,7 @@ var rfcVectors = []struct {
 func TestRFCVectors(t *testing.T) {
 	for _, tc := range rfcVectors {
 		t.Run(tc.name, func(t *testing.T) {
-			h := New()
-			h.SetCustomizationString(tc.custom)
+			h := New(tc.custom)
 
 			if tc.msg != nil {
 				_, _ = h.Write(tc.msg)
@@ -196,7 +195,7 @@ func TestClone(t *testing.T) {
 			msg := ptn(size)
 
 			// Write all data, clone, verify both produce the same output.
-			h := New()
+			h := New(nil)
 			_, _ = h.Write(msg)
 
 			clone := h.Clone()
@@ -215,7 +214,7 @@ func TestClone(t *testing.T) {
 	}
 
 	t.Run("independent after clone", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		_, _ = h.Write(ptn(BlockSize + 1))
 
 		clone := h.Clone()
@@ -237,10 +236,10 @@ func TestClone(t *testing.T) {
 
 func TestEqual(t *testing.T) {
 	t.Run("same input", func(t *testing.T) {
-		h1 := New()
+		h1 := New(nil)
 		_, _ = h1.Write(ptn(100))
 
-		h2 := New()
+		h2 := New(nil)
 		_, _ = h2.Write(ptn(100))
 
 		if h1.Equal(h2) != 1 {
@@ -249,10 +248,10 @@ func TestEqual(t *testing.T) {
 	})
 
 	t.Run("different input", func(t *testing.T) {
-		h1 := New()
+		h1 := New(nil)
 		_, _ = h1.Write(ptn(100))
 
-		h2 := New()
+		h2 := New(nil)
 		_, _ = h2.Write(ptn(200))
 
 		if h1.Equal(h2) != 0 {
@@ -261,7 +260,7 @@ func TestEqual(t *testing.T) {
 	})
 
 	t.Run("clone", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		_, _ = h.Write(ptn(BlockSize + 1))
 
 		clone := h.Clone()
@@ -271,7 +270,7 @@ func TestEqual(t *testing.T) {
 	})
 
 	t.Run("diverged clone", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		_, _ = h.Write(ptn(100))
 
 		clone := h.Clone()
@@ -285,14 +284,14 @@ func TestEqual(t *testing.T) {
 
 func TestPos(t *testing.T) {
 	t.Run("new hasher", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		if h.Pos() != 0 {
 			t.Fatalf("Pos() = %d, want 0", h.Pos())
 		}
 	})
 
 	t.Run("after write", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		_, _ = h.Write(ptn(100))
 		if h.Pos() != 100 {
 			t.Fatalf("Pos() = %d, want 100", h.Pos())
@@ -300,7 +299,7 @@ func TestPos(t *testing.T) {
 	})
 
 	t.Run("cumulative writes", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		_, _ = h.Write(ptn(100))
 		_, _ = h.Write(ptn(200))
 		if h.Pos() != 300 {
@@ -309,7 +308,7 @@ func TestPos(t *testing.T) {
 	})
 
 	t.Run("after reset", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		_, _ = h.Write(ptn(100))
 		h.Reset()
 		if h.Pos() != 0 {
@@ -319,12 +318,12 @@ func TestPos(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	h := New()
+	h := New(nil)
 	_, _ = h.Write(ptn(BlockSize + 1))
 	h.Reset()
 	_, _ = h.Write(ptn(BlockSize + 1))
 
-	fresh := New()
+	fresh := New(nil)
 	_, _ = fresh.Write(ptn(BlockSize + 1))
 
 	out1 := make([]byte, 64)
@@ -338,8 +337,58 @@ func TestReset(t *testing.T) {
 	}
 }
 
+// TestCustomizationStringCopied verifies that New copies the customization
+// string, so mutating the caller's slice afterward cannot change the output.
+func TestCustomizationStringCopied(t *testing.T) {
+	msg := ptn(100)
+	custom := ptn(41) // caller-owned, mutable
+
+	// Reference output for the original customization.
+	want := make([]byte, 64)
+	ref := New(custom)
+	_, _ = ref.Write(msg)
+	_, _ = ref.Read(want)
+
+	// Mutate the caller's slice after constructing the hasher.
+	h := New(custom)
+	for i := range custom {
+		custom[i] ^= 0xFF
+	}
+	_, _ = h.Write(msg)
+	got := make([]byte, 64)
+	_, _ = h.Read(got)
+
+	if !bytes.Equal(got, want) {
+		t.Fatal("mutating the caller's customization slice changed the output; New did not copy it")
+	}
+}
+
+// TestResetPreservesCustomization verifies that Reset keeps the customization
+// string passed to New, so a reused hasher matches a fresh one constructed with
+// the same customization.
+func TestResetPreservesCustomization(t *testing.T) {
+	custom := ptn(41)
+
+	h := New(custom)
+	_, _ = h.Write(ptn(100))
+	h.Reset()
+	_, _ = h.Write(ptn(200))
+
+	fresh := New(custom)
+	_, _ = fresh.Write(ptn(200))
+
+	out1 := make([]byte, 64)
+	_, _ = h.Read(out1)
+	out2 := make([]byte, 64)
+	_, _ = fresh.Read(out2)
+
+	if !bytes.Equal(out1, out2) {
+		t.Fatal("Reset should preserve the customization string")
+	}
+}
+
 func TestBlockSizeMethod(t *testing.T) {
-	h := New()
+	h := New(nil)
 	if got := h.BlockSize(); got != BlockSize {
 		t.Fatalf("BlockSize() = %d, want %d", got, BlockSize)
 	}
@@ -414,15 +463,13 @@ func TestWritePartitionInvariance(t *testing.T) {
 			custom := ptn(customLen)
 
 			// Reference: a single Write.
-			ref := New()
-			ref.SetCustomizationString(custom)
+			ref := New(custom)
 			_, _ = ref.Write(msg)
 			want := make([]byte, 64)
 			_, _ = ref.Read(want)
 
 			for _, chunk := range chunks {
-				h := New()
-				h.SetCustomizationString(custom)
+				h := New(custom)
 				for off := 0; off < len(msg); off += chunk {
 					_, _ = h.Write(msg[off:min(off+chunk, len(msg))])
 				}
@@ -455,13 +502,13 @@ func TestReadPartitionInvariance(t *testing.T) {
 		msg := ptn(msgLen)
 
 		// Reference: one Read of the whole output.
-		ref := New()
+		ref := New(nil)
 		_, _ = ref.Write(msg)
 		want := make([]byte, outLen)
 		_, _ = ref.Read(want)
 
 		for _, chunk := range chunks {
-			h := New()
+			h := New(nil)
 			_, _ = h.Write(msg)
 			got := make([]byte, outLen)
 			for off := 0; off < outLen; off += chunk {
@@ -479,7 +526,7 @@ func TestReadPartitionInvariance(t *testing.T) {
 
 func TestWriteTreeModeBuffering(t *testing.T) {
 	t.Run("direct S0", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		_, _ = h.Write(ptn(BlockSize + 1))
 
 		if h.state != stateTree {
@@ -494,7 +541,7 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 	})
 
 	t.Run("reuse buffered S0", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		_, _ = h.Write(ptn(BlockSize))
 		initialCap := cap(h.buf)
 		_, _ = h.Write([]byte{0xA5})
@@ -511,7 +558,7 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 	})
 
 	t.Run("flush exact lane batch", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		_, _ = h.Write(ptn(BlockSize + 1))
 		_, _ = h.Write(ptn(availableLanes*BlockSize - 1))
 
@@ -524,7 +571,7 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 	})
 
 	t.Run("process exact lane batch directly", func(t *testing.T) {
-		h := New()
+		h := New(nil)
 		_, _ = h.Write(ptn((availableLanes + 1) * BlockSize))
 
 		if h.leafCount != uint64(availableLanes) {
@@ -544,7 +591,7 @@ func BenchmarkWrite(b *testing.B) {
 			b.SetBytes(int64(size.N))
 			b.ReportAllocs()
 			for b.Loop() {
-				h := New()
+				h := New(nil)
 				_, _ = h.Write(msg)
 				_, _ = h.Read(out)
 			}
@@ -564,7 +611,7 @@ func BenchmarkWriteStreaming(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				h := New()
+				h := New(nil)
 				for i := 0; i < len(msg); i += BlockSize {
 					end := min(i+BlockSize, len(msg))
 					_, _ = h.Write(msg[i:end])
@@ -583,7 +630,7 @@ func BenchmarkRead(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				h := New()
+				h := New(nil)
 				_, _ = h.Write(ptn(BlockSize + 1))
 				_, _ = io.ReadFull(h, out)
 			}

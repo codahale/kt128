@@ -28,7 +28,8 @@ const (
 
 // Hasher is an incremental KT128 instance.
 type Hasher struct {
-	buf, c    []byte // buffered message/leaf data
+	buf       []byte // buffered message/leaf data
+	c         []byte // owned copy of the customization string
 	final     sponge // final-node sponge state
 	pos       uint64 // total bytes written via Write
 	leafCount uint64 // total leaf CVs written to final so far
@@ -36,17 +37,11 @@ type Hasher struct {
 	ds        byte   // KT128 customization byte for finalization (singleDS or treeDS)
 }
 
-// New returns a new Hasher.
-func New() *Hasher {
-	return &Hasher{}
-}
-
-// SetCustomizationString sets the customization string for the hasher.
-func (h *Hasher) SetCustomizationString(c []byte) {
-	if h.state == stateFinalized {
-		panic("kt128: Hasher is finalized")
-	}
-	h.c = c
+// New returns a new Hasher with the given customization string. The Hasher
+// retains a copy of c, so later mutations of the caller's slice do not affect
+// the output. Pass nil for no customization.
+func New(c []byte) *Hasher {
+	return &Hasher{c: slices.Clone(c)}
 }
 
 func (h *Hasher) BlockSize() int {
@@ -241,7 +236,8 @@ func (h *Hasher) Clone() *Hasher {
 	}
 }
 
-// Reset resets the Hasher to its initial state.
+// Reset resets the Hasher to its initial state, preserving the customization
+// string passed to New.
 func (h *Hasher) Reset() {
 	clear(h.buf)
 	h.buf = h.buf[:0]

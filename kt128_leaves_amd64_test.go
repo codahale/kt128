@@ -52,7 +52,7 @@ func BenchmarkWriteForceAVX2(b *testing.B) {
 			b.SetBytes(int64(size))
 			cpuid.HasAVX512 = false
 			for b.Loop() {
-				h := New()
+				h := New(nil)
 				_, _ = h.Write(msg)
 				_, _ = h.Read(out)
 			}
@@ -80,13 +80,13 @@ func TestAVX2MatchesAVX512(t *testing.T) {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
 			msg := ptn(size)
 
-			ref := New()
+			ref := New(nil)
 			_, _ = ref.Write(msg)
 			want := make([]byte, 64)
 			_, _ = ref.Read(want)
 
 			cpuid.HasAVX512 = false
-			h := New()
+			h := New(nil)
 			_, _ = h.Write(msg)
 			got := make([]byte, 64)
 			_, _ = h.Read(got)

@@ -13,7 +13,7 @@ func TestWriteAllocationsDoNotScale(t *testing.T) {
 	out := make([]byte, 32)
 	cycle := func(msg []byte) func() {
 		return func() {
-			h := New()
+			h := New(nil)
 			_, _ = h.Write(msg)
 			_, _ = h.Read(out)
 		}
@@ -45,7 +45,7 @@ func TestReadAllocationsDoNotScale(t *testing.T) {
 
 	read := func(out []byte) func() {
 		return func() {
-			h := New()
+			h := New(nil)
 			_, _ = h.Write(msg)
 			_, _ = h.Read(out)
 		}

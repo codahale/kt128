@@ -50,8 +50,7 @@ func FuzzHasher(f *testing.F) {
 		chunk := int(chunkRaw)%(BlockSize+1) + 1
 		outLen := int(outRaw)%4096 + 1
 
-		h := New()
-		h.SetCustomizationString(custom)
+		h := New(custom)
 		for off := 0; off < len(msg); off += chunk {
 			if _, err := h.Write(msg[off:min(off+chunk, len(msg))]); err != nil {
 				t.Fatalf("Write: %v", err)
