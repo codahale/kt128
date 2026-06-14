@@ -27,18 +27,21 @@ jobs:
         include:
         # Arch-independent and native-assembly targets, on both architectures
         # (arm64 included because it is the primary development host).
-        - { name: "Hasher (amd64)", os: ubuntu-24.04,     target: FuzzHasher,              chip: "" }
-        - { name: "P1600 (amd64)",  os: ubuntu-24.04,     target: FuzzP1600,               chip: "" }
-        - { name: "Absorb (amd64)", os: ubuntu-24.04,     target: FuzzFastLoopAbsorb168x1, chip: "" }
-        - { name: "Hasher (arm64)", os: ubuntu-24.04-arm, target: FuzzHasher,              chip: "" }
-        - { name: "P1600 (arm64)",  os: ubuntu-24.04-arm, target: FuzzP1600,               chip: "" }
-        - { name: "Absorb (arm64)", os: ubuntu-24.04-arm, target: FuzzFastLoopAbsorb168x1, chip: "" }
+        - { name: "Hasher (amd64)",    os: ubuntu-24.04,     target: FuzzHasher,              chip: "" }
+        - { name: "Lifecycle (amd64)", os: ubuntu-24.04,     target: FuzzHasherLifecycle,     chip: "" }
+        - { name: "P1600 (amd64)",     os: ubuntu-24.04,     target: FuzzP1600,               chip: "" }
+        - { name: "Absorb (amd64)",    os: ubuntu-24.04,     target: FuzzFastLoopAbsorb168x1, chip: "" }
+        - { name: "Hasher (arm64)",    os: ubuntu-24.04-arm, target: FuzzHasher,              chip: "" }
+        - { name: "Lifecycle (arm64)", os: ubuntu-24.04-arm, target: FuzzHasherLifecycle,     chip: "" }
+        - { name: "P1600 (arm64)",     os: ubuntu-24.04-arm, target: FuzzP1600,               chip: "" }
+        - { name: "Absorb (arm64)",    os: ubuntu-24.04-arm, target: FuzzFastLoopAbsorb168x1, chip: "" }
         # The AVX-512 kernels only run on an AVX-512 CPU, so fuzz them under SDE
         # (Sapphire Rapids). FuzzHasher drives the AVX-512 leaf kernels end-to-end;
         # the other two exercise the AVX-512 permute/absorb primitives directly.
-        - { name: "Hasher (spr)",   os: ubuntu-24.04,     target: FuzzHasher,                    chip: spr }
-        - { name: "P1600 (spr)",    os: ubuntu-24.04,     target: FuzzP1600AVX512,               chip: spr }
-        - { name: "Absorb (spr)",   os: ubuntu-24.04,     target: FuzzFastLoopAbsorb168x1AVX512, chip: spr }
+        - { name: "Hasher (spr)",    os: ubuntu-24.04,     target: FuzzHasher,                    chip: spr }
+        - { name: "Lifecycle (spr)", os: ubuntu-24.04,     target: FuzzHasherLifecycle,           chip: spr }
+        - { name: "P1600 (spr)",     os: ubuntu-24.04,     target: FuzzP1600AVX512,               chip: spr }
+        - { name: "Absorb (spr)",    os: ubuntu-24.04,     target: FuzzFastLoopAbsorb168x1AVX512, chip: spr }
     steps:
     - name: Checkout
       uses: actions/checkout@v6
