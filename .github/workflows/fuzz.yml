@@ -6,10 +6,12 @@ on:
       fuzztime:
         description: 'How long to fuzz each target (Go duration, e.g. 10m, 1h).'
         default: '10m'
-  schedule:
+  # TODO Nightly fuzz jobs continue to fail with an internal Go error. Disable until 
+  # https://github.com/golang/go/issues/75804 is resolved.
+  # schedule:
     # Nightly at 04:17 UTC. Fuzzing is too slow to gate pushes and PRs; the seed
     # corpus still runs there as part of the normal test suite.
-    - cron: '17 4 * * *'
+    # - cron: '17 4 * * *'
 
 permissions:
   contents: read
