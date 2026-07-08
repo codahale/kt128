@@ -31,7 +31,7 @@ const (
 
 // Hasher is an incremental KT128 instance.
 type Hasher struct {
-	buf       []byte // buffered message/leaf data
+	buf       []byte // buffered leaf data (tree mode only)
 	c         []byte // owned copy of the customization string
 	final     sponge // final-node sponge state
 	pos       uint64 // total bytes written via Write
@@ -66,32 +66,24 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	}
 
 	n := len(p)
-	h.pos += uint64(n)
 
 	if h.state == stateSingle {
-		if len(h.buf) == 0 && len(p) > BlockSize {
-			// S_0 is contiguous in p, so absorb it without allocating a message
-			// buffer solely to enter tree mode.
-			h.startTreeMode(p[:BlockSize])
-			p = p[BlockSize:]
-		} else {
-			// Buffer until we have more than one chunk.
-			need := BlockSize + 1 - len(h.buf)
-			if need > len(p) {
-				// Not enough to enter tree mode; just buffer.
-				h.buf = append(h.buf, p...)
-				return n, nil
-			}
-
-			// S_0 spans h.buf and p. Absorb exactly the bytes needed to complete
-			// it, leaving the overflow in p and reusing h.buf for leaf data.
-			nS0 := BlockSize - len(h.buf)
-			h.buf = append(h.buf, p[:nS0]...)
-			p = p[nS0:]
-			h.startTreeMode(h.buf)
-			h.buf = h.buf[:0]
+		// Single-node finalization and tree-mode S_0 absorb the first chunk
+		// into the final node identically, so message bytes are absorbed
+		// eagerly with no buffering; the two modes diverge only once the
+		// input exceeds one chunk.
+		room := BlockSize - int(h.pos)
+		if len(p) <= room {
+			h.final.absorb(p)
+			h.pos += uint64(n)
+			return n, nil
 		}
+		h.final.absorb(p[:room])
+		p = p[room:]
+		h.startTreeMode()
 	}
+
+	h.pos += uint64(n)
 
 	lanes := availableLanes
 
@@ -268,49 +260,38 @@ func customSuffix(dst []byte, c []byte) []byte {
 	return lengthEncode(dst, uint64(len(c)))
 }
 
-// startTreeMode resets the final sponge and absorbs S_0 plus the KT12 marker.
-func (h *Hasher) startTreeMode(s0 []byte) {
-	h.final.reset()
-	h.ds = treeDS
-	h.final.absorb(s0)
+// startTreeMode switches to tree mode: the final node has absorbed exactly
+// BlockSize bytes of S_0, so absorb the KT12 marker after it.
+func (h *Hasher) startTreeMode() {
 	h.final.absorb(kt12Marker[:])
+	h.ds = treeDS
 	h.state = stateTree
 }
 
-// absorbMessage absorbs the logical message h.buf || suffix into h.final,
-// setting h.ds. The two slices are processed as a single byte stream without
-// concatenating them, so the (possibly large) message buffer is never copied.
-// It does not modify h.buf.
+// absorbMessage absorbs the rest of the logical message into h.final, setting
+// h.ds. Message bytes up to one chunk are already in h.final, so in single-node
+// mode only the suffix remains, and it decides whether the input fits a single
+// node. In tree mode, the buffered leaf tail and the suffix are processed as a
+// single byte stream without concatenating or copying them. It does not modify
+// h.buf.
 func (h *Hasher) absorbMessage(suffix []byte) {
-	buf := h.buf
-
 	if h.state == stateSingle {
-		if len(buf)+len(suffix) <= BlockSize {
+		room := BlockSize - int(h.pos)
+		if len(suffix) <= room {
 			// Single-node: KT128 single-node finalization.
-			h.final.reset()
 			h.ds = singleDS
-			h.final.absorb(buf)
 			h.final.absorb(suffix)
 			return
 		}
 
-		// Enter tree mode: flush S_0, the first BlockSize bytes of buf || suffix.
-		if len(buf) >= BlockSize {
-			h.startTreeMode(buf[:BlockSize])
-			buf = buf[BlockSize:]
-		} else {
-			// S_0 spans buf and suffix (only with a large customization string).
-			n := BlockSize - len(buf)
-			h.final.reset()
-			h.ds = treeDS
-			h.final.absorb(buf)
-			h.final.absorb(suffix[:n])
-			h.final.absorb(kt12Marker[:])
-			h.state = stateTree
-			buf = nil
-			suffix = suffix[n:]
-		}
+		// The suffix pushes the input past one chunk: complete S_0 from it
+		// and enter tree mode; the remainder becomes leaf data.
+		h.final.absorb(suffix[:room])
+		suffix = suffix[room:]
+		h.startTreeMode()
 	}
+
+	buf := h.buf
 
 	// Tree mode: process buf || suffix as leaves S_1, S_2, ... plus terminator.
 	// Complete leaves lying entirely within buf use the SIMD batch path directly.

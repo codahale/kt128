@@ -567,10 +567,17 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		}
 	})
 
-	t.Run("reuse buffered S0", func(t *testing.T) {
+	t.Run("no buffering below one chunk", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(BlockSize))
-		initialCap := cap(h.buf)
+
+		if h.state != stateSingle {
+			t.Fatalf("state = %d, want stateSingle", h.state)
+		}
+		if cap(h.buf) != 0 {
+			t.Fatalf("buffer capacity = %d, want 0", cap(h.buf))
+		}
+
 		_, _ = h.Write([]byte{0xA5})
 
 		if h.state != stateTree {
@@ -579,8 +586,8 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		if len(h.buf) != 1 {
 			t.Fatalf("buffered bytes = %d, want 1", len(h.buf))
 		}
-		if cap(h.buf) != initialCap {
-			t.Fatalf("buffer capacity grew from %d to %d", initialCap, cap(h.buf))
+		if cap(h.buf) >= BlockSize {
+			t.Fatalf("buffer capacity = %d, want less than one block", cap(h.buf))
 		}
 	})
 
