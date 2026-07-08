@@ -75,6 +75,38 @@ func TestProcessLeavesPair(t *testing.T) {
 	}
 }
 
+// TestProcessS0LeafPair checks the fused S_0+leaf kernel against the x1 paths:
+// the final-node state must match absorbing S_0 || kt12 marker into a fresh
+// sponge, and the chain value must match the x1 leaf path.
+func TestProcessS0LeafPair(t *testing.T) {
+	input := make([]byte, 2*BlockSize)
+	for i := range input {
+		input[i] = byte(i*13 + i>>6)
+	}
+
+	var final sponge
+	var cv [32]byte
+	if !processS0LeafPairArch(input, &final, &cv) {
+		t.Skip("no fused S0+leaf kernel on this platform")
+	}
+
+	var wantFinal sponge
+	wantFinal.absorb(input[:BlockSize])
+	wantFinal.absorb(kt12Marker[:])
+	if final != wantFinal {
+		t.Errorf("final-node state:\n got %x pos=%d\nwant %x pos=%d",
+			final.a, final.pos, wantFinal.a, wantFinal.pos)
+	}
+
+	var s sponge
+	leafStateX1(input[BlockSize:], &s)
+	var want [32]byte
+	s.squeeze(want[:])
+	if cv != want {
+		t.Errorf("leaf CV: got %x, want %x", cv, want)
+	}
+}
+
 // TestProcessLeavesRun checks the direct-read run kernel against the x1 leaf
 // path for every remainder size it handles.
 func TestProcessLeavesRun(t *testing.T) {

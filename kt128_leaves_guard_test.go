@@ -152,6 +152,17 @@ func runLeafKernels(t *testing.T) {
 		})
 	}
 
+	// Fused S_0+leaf kernel (arm64): reads exactly 2 contiguous chunks.
+	var probeFinal sponge
+	var probeCV [32]byte
+	if processS0LeafPairArch(make([]byte, 2*BlockSize), &probeFinal, &probeCV) {
+		var final sponge
+		var cv [32]byte
+		expectNoFault(t, "processS0LeafPair(x2)", func() {
+			processS0LeafPairArch(guardedBuffer(t, 2*BlockSize), &final, &cv)
+		})
+	}
+
 	// Run/quad remainder kernels (amd64): the dummy lanes must stay within the
 	// n-chunk buffer. A clamping bug would read chunk n (past the guard).
 	if hasRun {

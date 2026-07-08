@@ -551,6 +551,30 @@ func TestReadPartitionInvariance(t *testing.T) {
 	}
 }
 
+// TestWriteFusedS0Leaf checks that the fused S_0+leaf fast path (S_0 and the
+// first leaf arriving in one Write of an untouched Hasher) produces the same
+// output as the incremental path it bypasses.
+func TestWriteFusedS0Leaf(t *testing.T) {
+	for _, size := range []int{2 * BlockSize, 2*BlockSize + 1, 3 * BlockSize, 8*BlockSize + 37} {
+		msg := ptn(size)
+
+		one := New(nil)
+		_, _ = one.Write(msg)
+		got := make([]byte, 64)
+		_, _ = one.Read(got)
+
+		two := New(nil)
+		_, _ = two.Write(msg[:1]) // eager absorption forecloses fusion
+		_, _ = two.Write(msg[1:])
+		want := make([]byte, 64)
+		_, _ = two.Read(want)
+
+		if !bytes.Equal(got, want) {
+			t.Errorf("size=%d: fused path diverges: got %x, want %x", size, got, want)
+		}
+	}
+}
+
 func TestWriteTreeModeBuffering(t *testing.T) {
 	t.Run("direct S0", func(t *testing.T) {
 		h := New(nil)
@@ -691,6 +715,7 @@ var sizes = []size{
 	{"64B", 64},
 	{"8KiB", 8 * 1024},
 	{"8KiB+1B", BlockSize + 1},
+	{"16KiB", 16 * 1024},
 	{"32KiB", 32 * 1024},
 	{"64KiB", 64 * 1024},
 	{"72KiB", 9 * BlockSize},

@@ -68,19 +68,32 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	n := len(p)
 
 	if h.state == stateSingle {
-		// Single-node finalization and tree-mode S_0 absorb the first chunk
-		// into the final node identically, so message bytes are absorbed
-		// eagerly with no buffering; the two modes diverge only once the
-		// input exceeds one chunk.
-		room := BlockSize - int(h.pos)
-		if len(p) <= room {
-			h.final.absorb(p)
-			h.pos += uint64(n)
-			return n, nil
+		// Fused fast path: with S_0 and the first leaf contiguous in p and
+		// nothing absorbed yet, process both together in one x2 kernel pass.
+		// Skipped when the leaves after S_0 form whole SIMD-width batches:
+		// consuming one would strand lanes-1 of them in the buffer instead of
+		// flushing them all directly from p.
+		leaves := (len(p) - BlockSize) / BlockSize
+		fusable := h.pos == 0 && leaves >= 1 &&
+			(leaves < availableLanes || leaves%availableLanes != 0)
+		if fusable && h.startTreeModeFused(p) {
+			// The rest of p is ordinary leaf data.
+			p = p[2*BlockSize:]
+		} else {
+			// Single-node finalization and tree-mode S_0 absorb the first
+			// chunk into the final node identically, so message bytes are
+			// absorbed eagerly with no buffering; the two modes diverge only
+			// once the input exceeds one chunk.
+			room := BlockSize - int(h.pos)
+			if len(p) <= room {
+				h.final.absorb(p)
+				h.pos += uint64(n)
+				return n, nil
+			}
+			h.final.absorb(p[:room])
+			p = p[room:]
+			h.startTreeMode()
 		}
-		h.final.absorb(p[:room])
-		p = p[room:]
-		h.startTreeMode()
 	}
 
 	h.pos += uint64(n)
@@ -266,6 +279,22 @@ func (h *Hasher) startTreeMode() {
 	h.final.absorb(kt12Marker[:])
 	h.ds = treeDS
 	h.state = stateTree
+}
+
+// startTreeModeFused enters tree mode by computing the final node's
+// S_0 || marker state and the first leaf's chain value together in one fused
+// x2 pass, where a kernel exists. It requires an untouched Hasher and two
+// full chunks contiguous in p, and consumes p[:2*BlockSize].
+func (h *Hasher) startTreeModeFused(p []byte) bool {
+	var cv [32]byte
+	if !processS0LeafPairArch(p[:2*BlockSize], &h.final, &cv) {
+		return false
+	}
+	h.ds = treeDS
+	h.state = stateTree
+	h.final.absorbCVs(cv[:])
+	h.leafCount++
+	return true
 }
 
 // absorbMessage absorbs the rest of the logical message into h.final, setting

@@ -563,3 +563,135 @@ leaves_arm64_pair_loop:
 	VDUP	V3.D[1], V25.D2; VST1 [V25.D1], (R6); ADD $8, R6
 
 	RET
+
+// func processS0LeafPairARM64(input *byte, state *uint64, cv *byte)
+//
+// Fused S_0 + first-leaf absorption. input is 2 contiguous 8192-byte chunks:
+// S_0 at +0 and the first leaf at +8192. The final node absorbing
+// S_0 || kt12 marker has the same permutation schedule as a leaf (48 full
+// stripes plus a 128-byte remainder and one more lane), so both ride one x2
+// pair: the final node in lane d[0], the leaf in d[1]. They differ only in
+// the last block: the final node XORs the marker word 0x03 at lane 16 and is
+// NOT permuted (it stays mid-block at position 136, set by the Go wrapper),
+// while the leaf XORs DS 0x0B at lane 16 and pad10*1 0x80 at lane 20 and is.
+// The 25-lane final-node state is written to state before the leaf's closing
+// permutation scrambles that lane; the leaf's 32-byte CV is written to cv.
+TEXT ·processS0LeafPairARM64(SB), NOSPLIT, $0-24
+	MOVD	input+0(FP), R0		// input base (2 chunks)
+	MOVD	state+8(FP), R7		// output final-node state base
+	MOVD	cv+16(FP), R6		// output CV base
+
+	MOVD	R0, R2			// in0 = S_0
+	ADD	$8192, R0, R3		// in1 = leaf
+
+	// Zero state V0-V24.
+	VEOR	V0.B16, V0.B16, V0.B16
+	VEOR	V1.B16, V1.B16, V1.B16
+	VEOR	V2.B16, V2.B16, V2.B16
+	VEOR	V3.B16, V3.B16, V3.B16
+	VEOR	V4.B16, V4.B16, V4.B16
+	VEOR	V5.B16, V5.B16, V5.B16
+	VEOR	V6.B16, V6.B16, V6.B16
+	VEOR	V7.B16, V7.B16, V7.B16
+	VEOR	V8.B16, V8.B16, V8.B16
+	VEOR	V9.B16, V9.B16, V9.B16
+	VEOR	V10.B16, V10.B16, V10.B16
+	VEOR	V11.B16, V11.B16, V11.B16
+	VEOR	V12.B16, V12.B16, V12.B16
+	VEOR	V13.B16, V13.B16, V13.B16
+	VEOR	V14.B16, V14.B16, V14.B16
+	VEOR	V15.B16, V15.B16, V15.B16
+	VEOR	V16.B16, V16.B16, V16.B16
+	VEOR	V17.B16, V17.B16, V17.B16
+	VEOR	V18.B16, V18.B16, V18.B16
+	VEOR	V19.B16, V19.B16, V19.B16
+	VEOR	V20.B16, V20.B16, V20.B16
+	VEOR	V21.B16, V21.B16, V21.B16
+	VEOR	V22.B16, V22.B16, V22.B16
+	VEOR	V23.B16, V23.B16, V23.B16
+	VEOR	V24.B16, V24.B16, V24.B16
+
+	MOVD	$48, R4
+
+s0leaf_arm64_pair_loop:
+	ABSORB_STRIPE_X2(R2, R3)
+
+	MOVD	$kt128_round_consts(SB), R1
+	ADD	$96, R1
+	KECCAK_12_ROUNDS
+
+	SUBS	$1, R4
+	BNE	s0leaf_arm64_pair_loop
+
+	// Absorb final 16 lanes.
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V0.B16, V0.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V1.B16, V1.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V2.B16, V2.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V3.B16, V3.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V4.B16, V4.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V5.B16, V5.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V6.B16, V6.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V7.B16, V7.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V8.B16, V8.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V9.B16, V9.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V10.B16, V10.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V11.B16, V11.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V12.B16, V12.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V13.B16, V13.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V14.B16, V14.B16
+	VLD1	(R2), [V25.D1]; ADD $8, R2; VLD1 (R3), [V26.D1]; ADD $8, R3; VZIP1 V26.D2, V25.D2, V25.D2; VEOR V25.B16, V15.B16, V15.B16
+
+	// Lane 16: kt12 marker word 0x03 for the final node (d[0]), leaf DS 0x0B
+	// for the leaf (d[1]).
+	MOVD	$0x0B, R9
+	VDUP	R9, V25.D2
+	MOVD	$0x03, R9
+	VMOV	R9, V25.D[0]
+	VEOR	V25.B16, V16.B16, V16.B16
+
+	// Lane 20: pad10*1 end 0x80 for the leaf only.
+	VEOR	V25.B16, V25.B16, V25.B16
+	MOVD	$0x8000000000000000, R9
+	VMOV	R9, V25.D[1]
+	VEOR	V25.B16, V20.B16, V20.B16
+
+	// Extract the final-node state (d[0] of all 25 lanes) before the leaf's
+	// closing permutation scrambles it.
+	VST1	[V0.D1], (R7); ADD $8, R7
+	VST1	[V1.D1], (R7); ADD $8, R7
+	VST1	[V2.D1], (R7); ADD $8, R7
+	VST1	[V3.D1], (R7); ADD $8, R7
+	VST1	[V4.D1], (R7); ADD $8, R7
+	VST1	[V5.D1], (R7); ADD $8, R7
+	VST1	[V6.D1], (R7); ADD $8, R7
+	VST1	[V7.D1], (R7); ADD $8, R7
+	VST1	[V8.D1], (R7); ADD $8, R7
+	VST1	[V9.D1], (R7); ADD $8, R7
+	VST1	[V10.D1], (R7); ADD $8, R7
+	VST1	[V11.D1], (R7); ADD $8, R7
+	VST1	[V12.D1], (R7); ADD $8, R7
+	VST1	[V13.D1], (R7); ADD $8, R7
+	VST1	[V14.D1], (R7); ADD $8, R7
+	VST1	[V15.D1], (R7); ADD $8, R7
+	VST1	[V16.D1], (R7); ADD $8, R7
+	VST1	[V17.D1], (R7); ADD $8, R7
+	VST1	[V18.D1], (R7); ADD $8, R7
+	VST1	[V19.D1], (R7); ADD $8, R7
+	VST1	[V20.D1], (R7); ADD $8, R7
+	VST1	[V21.D1], (R7); ADD $8, R7
+	VST1	[V22.D1], (R7); ADD $8, R7
+	VST1	[V23.D1], (R7); ADD $8, R7
+	VST1	[V24.D1], (R7)
+
+	// Closing permutation for the leaf lane.
+	MOVD	$kt128_round_consts(SB), R1
+	ADD	$96, R1
+	KECCAK_12_ROUNDS
+
+	// Extract the leaf CV (d[1] of lanes 0-3).
+	VDUP	V0.D[1], V25.D2; VST1 [V25.D1], (R6); ADD $8, R6
+	VDUP	V1.D[1], V25.D2; VST1 [V25.D1], (R6); ADD $8, R6
+	VDUP	V2.D[1], V25.D2; VST1 [V25.D1], (R6); ADD $8, R6
+	VDUP	V3.D[1], V25.D2; VST1 [V25.D1], (R6)
+
+	RET

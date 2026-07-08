@@ -35,6 +35,10 @@ func processLeavesArch(input []byte, cvs *[256]byte) bool {
 // amd64; the run kernel (AVX-512) or padded x8 path drains remainders instead.
 func processLeavesPairArch(_ []byte, _ *[256]byte) bool { return false }
 
+// processS0LeafPairArch reports that no fused S_0+leaf kernel is available on
+// amd64; S_0 is absorbed through the x1 sponge path instead.
+func processS0LeafPairArch(_ []byte, _ *sponge, _ *[32]byte) bool { return false }
+
 // processLeavesRunArch computes n (2..7) leaf CVs by reading the chunks directly
 // with no scratch buffer: a single 8-wide masked-gather pass on AVX-512, or one
 // to two x4 passes with dummy lanes on AVX2.
