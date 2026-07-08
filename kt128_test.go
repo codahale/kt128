@@ -628,6 +628,24 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		}
 	})
 
+	t.Run("direct pairs below lane batch", func(t *testing.T) {
+		if flushChunks >= availableLanes {
+			t.Skip("no sub-batch direct flushing on this platform")
+		}
+		h := New(nil)
+		_, _ = h.Write(ptn(6*BlockSize + 37)) // S_0+leaf fused, 4 leaves in place, tail buffered
+
+		if h.leafCount != 5 {
+			t.Fatalf("leaf count = %d, want 5", h.leafCount)
+		}
+		if len(h.buf) != 37 {
+			t.Fatalf("buffered bytes = %d, want 37", len(h.buf))
+		}
+		if cap(h.buf) >= BlockSize {
+			t.Fatalf("buffer capacity = %d, want less than one block", cap(h.buf))
+		}
+	})
+
 	t.Run("process exact lane batch directly", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn((availableLanes + 1) * BlockSize))

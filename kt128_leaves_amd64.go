@@ -10,6 +10,12 @@ import (
 
 const availableLanes = 8
 
+// flushChunks is the smallest chunk count the direct fast path may flush
+// without meaningful throughput loss. amd64 has no cheap narrow kernel (the
+// remainder paths use masked gathers or dummy lanes), so it stays at the full
+// SIMD width.
+const flushChunks = 8
+
 //go:noescape
 func processLeavesAVX512(input *byte, cvs *byte)
 

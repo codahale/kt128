@@ -100,33 +100,31 @@ func (h *Hasher) Write(p []byte) (int, error) {
 
 	lanes := availableLanes
 
-	// Large-write fast path: process chunks directly from p to avoid copying.
-	if len(p) >= lanes*BlockSize {
-		// Drain any buffered data: flush complete blocks, then complete the
-		// partial tail with bytes from p.
+	// Direct fast path: process chunks in place from p to avoid copying. With
+	// buffered data present, mid-size writes keep the buffer-and-batch route
+	// below so buffered chunks aren't pushed through narrow kernels
+	// prematurely; where flushChunks == availableLanes this reduces to the
+	// SIMD-width threshold alone.
+	if len(p) >= flushChunks*BlockSize && (len(h.buf) == 0 || len(p) >= lanes*BlockSize) {
+		// Drain any buffered data: complete the partial tail with bytes from
+		// p, then flush all buffered chunks as a single batch.
 		if len(h.buf) > 0 {
-			if full := len(h.buf) / BlockSize; full > 0 {
-				h.processLeafBatch(h.buf[:full*BlockSize], full)
-				remaining := copy(h.buf, h.buf[full*BlockSize:])
-				h.buf = h.buf[:remaining]
-			}
-			if len(h.buf) > 0 {
-				need := BlockSize - len(h.buf)
+			if partial := len(h.buf) % BlockSize; partial != 0 {
+				need := BlockSize - partial
 				h.buf = append(h.buf, p[:need]...)
 				p = p[need:]
-				h.processLeafBatch(h.buf[:BlockSize], 1)
-				h.buf = h.buf[:0]
 			}
+			h.processLeafBatch(h.buf, len(h.buf)/BlockSize)
+			h.buf = h.buf[:0]
 		}
 
-		// The customization suffix added at finalization is always non-empty, so
-		// complete message leaves do not need to be retained as lookahead.
-		for {
-			processable := len(p) / BlockSize
-			nFlush := (processable / lanes) * lanes
-			if nFlush == 0 {
-				break
-			}
+		// Flush whole flushChunks-multiples in place. An odd leftover chunk is
+		// buffered rather than processed here: it costs an x1 pass now or at
+		// finalization either way, but a later write may pair it. Complete
+		// message leaves need no lookahead, since the customization suffix
+		// added at finalization is always non-empty.
+		processable := len(p) / BlockSize
+		if nFlush := processable - processable%flushChunks; nFlush > 0 {
 			h.processLeafBatch(p[:nFlush*BlockSize], nFlush)
 			p = p[nFlush*BlockSize:]
 		}
@@ -138,12 +136,8 @@ func (h *Hasher) Write(p []byte) (int, error) {
 
 	// Streaming path: accumulate in buf, flush in SIMD-width batches.
 	h.buf = append(h.buf, p...)
-	for {
-		processable := len(h.buf) / BlockSize
+	if processable := len(h.buf) / BlockSize; processable >= lanes {
 		nFlush := (processable / lanes) * lanes
-		if nFlush == 0 {
-			break
-		}
 		h.processLeafBatch(h.buf[:nFlush*BlockSize], nFlush)
 		remaining := copy(h.buf, h.buf[nFlush*BlockSize:])
 		h.buf = h.buf[:remaining]
