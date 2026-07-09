@@ -330,6 +330,236 @@ leaves_run_avx512_loop:
 	RET
 
 
+// func processLeavesRunPartialAVX512(input *byte, cvs *byte, n, nShared uint64, lane1 *uint64)
+//
+// Tail-lane variant of processLeavesRunAVX512: processes n (1..7) contiguous
+// complete chunks in lanes 0..n-1 plus a trailing partial leaf in lane n,
+// whose data starts at input+n*8192 and participates for its nShared whole
+// 168-byte stripes. After those stripes lane n's 25-lane state is written to
+// lane1 for the Go caller to finish (ragged tail, padding, and closing
+// permutation), the lane is re-clamped to chunk 0 as a dummy, and the
+// complete lanes run their remaining stripes and padded final block. CVs for
+// all 8 lanes are scattered into cvs; the caller reads the first n.
+//
+// Reads exactly n*8192 complete-chunk bytes and nShared*168 tail bytes.
+// nShared must be in [0, 48].
+TEXT ·processLeavesRunPartialAVX512(SB), $64-40
+	MOVQ	input+0(FP), BX
+	MOVQ	cvs+8(FP), DI
+	MOVQ	n+16(FP), AX
+	MOVQ	nShared+24(FP), R13
+	MOVQ	lane1+32(FP), SI
+
+	// Build the gather index vector at SP+0 with n+1 active lanes:
+	// lane i = (i <= n) ? i*8192 : 0. Lanes past the tail lane fall back to
+	// chunk 0 (in-bounds, discarded).
+	MOVQ	$0, 0(SP)
+	MOVQ	$8192, R10;  XORQ R9, R9; CMPQ AX, $1; CMOVQGE R10, R9; MOVQ R9, 8(SP)
+	MOVQ	$16384, R10; XORQ R9, R9; CMPQ AX, $2; CMOVQGE R10, R9; MOVQ R9, 16(SP)
+	MOVQ	$24576, R10; XORQ R9, R9; CMPQ AX, $3; CMOVQGE R10, R9; MOVQ R9, 24(SP)
+	MOVQ	$32768, R10; XORQ R9, R9; CMPQ AX, $4; CMOVQGE R10, R9; MOVQ R9, 32(SP)
+	MOVQ	$40960, R10; XORQ R9, R9; CMPQ AX, $5; CMOVQGE R10, R9; MOVQ R9, 40(SP)
+	MOVQ	$49152, R10; XORQ R9, R9; CMPQ AX, $6; CMOVQGE R10, R9; MOVQ R9, 48(SP)
+	MOVQ	$57344, R10; XORQ R9, R9; CMPQ AX, $7; CMOVQGE R10, R9; MOVQ R9, 56(SP)
+
+	// Zero state Z0-Z24.
+	VPXORQ	Z0, Z0, Z0
+	VPXORQ	Z1, Z1, Z1
+	VPXORQ	Z2, Z2, Z2
+	VPXORQ	Z3, Z3, Z3
+	VPXORQ	Z4, Z4, Z4
+	VPXORQ	Z5, Z5, Z5
+	VPXORQ	Z6, Z6, Z6
+	VPXORQ	Z7, Z7, Z7
+	VPXORQ	Z8, Z8, Z8
+	VPXORQ	Z9, Z9, Z9
+	VPXORQ	Z10, Z10, Z10
+	VPXORQ	Z11, Z11, Z11
+	VPXORQ	Z12, Z12, Z12
+	VPXORQ	Z13, Z13, Z13
+	VPXORQ	Z14, Z14, Z14
+	VPXORQ	Z15, Z15, Z15
+	VPXORQ	Z16, Z16, Z16
+	VPXORQ	Z17, Z17, Z17
+	VPXORQ	Z18, Z18, Z18
+	VPXORQ	Z19, Z19, Z19
+	VPXORQ	Z20, Z20, Z20
+	VPXORQ	Z21, Z21, Z21
+	VPXORQ	Z22, Z22, Z22
+	VPXORQ	Z23, Z23, Z23
+	VPXORQ	Z24, Z24, Z24
+
+	MOVQ	$48, R12
+	SUBQ	R13, R12	// stripes remaining after the shared pass
+
+	TESTQ	R13, R13
+	JZ	run_partial_export
+
+run_partial_shared_loop:
+	VMOVDQU64	0(SP), Z28
+
+	ABSORB_LANE_X8_GATHER(0*8, Z0)
+	ABSORB_LANE_X8_GATHER(1*8, Z1)
+	ABSORB_LANE_X8_GATHER(2*8, Z2)
+	ABSORB_LANE_X8_GATHER(3*8, Z3)
+	ABSORB_LANE_X8_GATHER(4*8, Z4)
+	ABSORB_LANE_X8_GATHER(5*8, Z5)
+	ABSORB_LANE_X8_GATHER(6*8, Z6)
+	ABSORB_LANE_X8_GATHER(7*8, Z7)
+	ABSORB_LANE_X8_GATHER(8*8, Z8)
+	ABSORB_LANE_X8_GATHER(9*8, Z9)
+	ABSORB_LANE_X8_GATHER(10*8, Z10)
+	ABSORB_LANE_X8_GATHER(11*8, Z11)
+	ABSORB_LANE_X8_GATHER(12*8, Z12)
+	ABSORB_LANE_X8_GATHER(13*8, Z13)
+	ABSORB_LANE_X8_GATHER(14*8, Z14)
+	ABSORB_LANE_X8_GATHER(15*8, Z15)
+	ABSORB_LANE_X8_GATHER(16*8, Z16)
+	ABSORB_LANE_X8_GATHER(17*8, Z17)
+	ABSORB_LANE_X8_GATHER(18*8, Z18)
+	ABSORB_LANE_X8_GATHER(19*8, Z19)
+	ABSORB_LANE_X8_GATHER(20*8, Z20)
+
+	LEAQ	kt128_round_consts_2x+192(SB), R11
+	X8_4ROUNDS_AVX512(0, 16, 32, 48)
+	X8_4ROUNDS_AVX512(64, 80, 96, 112)
+	X8_4ROUNDS_AVX512(128, 144, 160, 176)
+
+	ADDQ	$168, BX
+	SUBQ	$1, R13
+	JNZ	run_partial_shared_loop
+
+run_partial_export:
+	// Export the tail lane's state (qword n of Z0-Z24) for the Go tail
+	// finish; the remaining stripes only affect the complete lanes.
+	MOVQ	AX, CX
+	MOVL	$1, R9
+	SHLL	CX, R9
+	KMOVB	R9, K2
+	VPCOMPRESSQ	Z0, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 0(SI)
+	VPCOMPRESSQ	Z1, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 8(SI)
+	VPCOMPRESSQ	Z2, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 16(SI)
+	VPCOMPRESSQ	Z3, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 24(SI)
+	VPCOMPRESSQ	Z4, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 32(SI)
+	VPCOMPRESSQ	Z5, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 40(SI)
+	VPCOMPRESSQ	Z6, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 48(SI)
+	VPCOMPRESSQ	Z7, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 56(SI)
+	VPCOMPRESSQ	Z8, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 64(SI)
+	VPCOMPRESSQ	Z9, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 72(SI)
+	VPCOMPRESSQ	Z10, K2, Z25; VMOVQ X25, R9; MOVQ R9, 80(SI)
+	VPCOMPRESSQ	Z11, K2, Z25; VMOVQ X25, R9; MOVQ R9, 88(SI)
+	VPCOMPRESSQ	Z12, K2, Z25; VMOVQ X25, R9; MOVQ R9, 96(SI)
+	VPCOMPRESSQ	Z13, K2, Z25; VMOVQ X25, R9; MOVQ R9, 104(SI)
+	VPCOMPRESSQ	Z14, K2, Z25; VMOVQ X25, R9; MOVQ R9, 112(SI)
+	VPCOMPRESSQ	Z15, K2, Z25; VMOVQ X25, R9; MOVQ R9, 120(SI)
+	VPCOMPRESSQ	Z16, K2, Z25; VMOVQ X25, R9; MOVQ R9, 128(SI)
+	VPCOMPRESSQ	Z17, K2, Z25; VMOVQ X25, R9; MOVQ R9, 136(SI)
+	VPCOMPRESSQ	Z18, K2, Z25; VMOVQ X25, R9; MOVQ R9, 144(SI)
+	VPCOMPRESSQ	Z19, K2, Z25; VMOVQ X25, R9; MOVQ R9, 152(SI)
+	VPCOMPRESSQ	Z20, K2, Z25; VMOVQ X25, R9; MOVQ R9, 160(SI)
+	VPCOMPRESSQ	Z21, K2, Z25; VMOVQ X25, R9; MOVQ R9, 168(SI)
+	VPCOMPRESSQ	Z22, K2, Z25; VMOVQ X25, R9; MOVQ R9, 176(SI)
+	VPCOMPRESSQ	Z23, K2, Z25; VMOVQ X25, R9; MOVQ R9, 184(SI)
+	VPCOMPRESSQ	Z24, K2, Z25; VMOVQ X25, R9; MOVQ R9, 192(SI)
+
+	// Re-clamp the tail lane to chunk 0: it is dead from here on but must
+	// keep gathering in-bounds memory.
+	MOVQ	$0, 0(SP)(AX*8)
+
+	TESTQ	R12, R12
+	JZ	run_partial_final
+
+run_partial_rest_loop:
+	VMOVDQU64	0(SP), Z28
+
+	ABSORB_LANE_X8_GATHER(0*8, Z0)
+	ABSORB_LANE_X8_GATHER(1*8, Z1)
+	ABSORB_LANE_X8_GATHER(2*8, Z2)
+	ABSORB_LANE_X8_GATHER(3*8, Z3)
+	ABSORB_LANE_X8_GATHER(4*8, Z4)
+	ABSORB_LANE_X8_GATHER(5*8, Z5)
+	ABSORB_LANE_X8_GATHER(6*8, Z6)
+	ABSORB_LANE_X8_GATHER(7*8, Z7)
+	ABSORB_LANE_X8_GATHER(8*8, Z8)
+	ABSORB_LANE_X8_GATHER(9*8, Z9)
+	ABSORB_LANE_X8_GATHER(10*8, Z10)
+	ABSORB_LANE_X8_GATHER(11*8, Z11)
+	ABSORB_LANE_X8_GATHER(12*8, Z12)
+	ABSORB_LANE_X8_GATHER(13*8, Z13)
+	ABSORB_LANE_X8_GATHER(14*8, Z14)
+	ABSORB_LANE_X8_GATHER(15*8, Z15)
+	ABSORB_LANE_X8_GATHER(16*8, Z16)
+	ABSORB_LANE_X8_GATHER(17*8, Z17)
+	ABSORB_LANE_X8_GATHER(18*8, Z18)
+	ABSORB_LANE_X8_GATHER(19*8, Z19)
+	ABSORB_LANE_X8_GATHER(20*8, Z20)
+
+	LEAQ	kt128_round_consts_2x+192(SB), R11
+	X8_4ROUNDS_AVX512(0, 16, 32, 48)
+	X8_4ROUNDS_AVX512(64, 80, 96, 112)
+	X8_4ROUNDS_AVX512(128, 144, 160, 176)
+
+	ADDQ	$168, BX
+	SUBQ	$1, R12
+	JNZ	run_partial_rest_loop
+
+run_partial_final:
+	// Absorb final 16 lanes (128-byte remainder).
+	VMOVDQU64	0(SP), Z28
+	ABSORB_LANE_X8_GATHER(0*8, Z0)
+	ABSORB_LANE_X8_GATHER(1*8, Z1)
+	ABSORB_LANE_X8_GATHER(2*8, Z2)
+	ABSORB_LANE_X8_GATHER(3*8, Z3)
+	ABSORB_LANE_X8_GATHER(4*8, Z4)
+	ABSORB_LANE_X8_GATHER(5*8, Z5)
+	ABSORB_LANE_X8_GATHER(6*8, Z6)
+	ABSORB_LANE_X8_GATHER(7*8, Z7)
+	ABSORB_LANE_X8_GATHER(8*8, Z8)
+	ABSORB_LANE_X8_GATHER(9*8, Z9)
+	ABSORB_LANE_X8_GATHER(10*8, Z10)
+	ABSORB_LANE_X8_GATHER(11*8, Z11)
+	ABSORB_LANE_X8_GATHER(12*8, Z12)
+	ABSORB_LANE_X8_GATHER(13*8, Z13)
+	ABSORB_LANE_X8_GATHER(14*8, Z14)
+	ABSORB_LANE_X8_GATHER(15*8, Z15)
+
+	// XOR padding: DS=0x0B into lane 16, pad10*1 end 0x80 into lane 20.
+	VPBROADCASTQ_IMM_0x0B(Z25)
+	VPXORQ	Z25, Z16, Z16
+	VPBROADCASTQ_IMM_0x80_HIGH(Z25)
+	VPXORQ	Z25, Z20, Z20
+
+	// Final permutation.
+	LEAQ	kt128_round_consts_2x+192(SB), R11
+	X8_4ROUNDS_AVX512(0, 16, 32, 48)
+	X8_4ROUNDS_AVX512(64, 80, 96, 112)
+	X8_4ROUNDS_AVX512(128, 144, 160, 176)
+
+	// Extract CVs via VPSCATTERQQ. All 8 lanes are scattered into the 256-byte
+	// cvs buffer; the caller reads only the first n.
+	MOVQ	$0, 0(SP)
+	MOVQ	$32, 8(SP)
+	MOVQ	$64, 16(SP)
+	MOVQ	$96, 24(SP)
+	MOVQ	$128, 32(SP)
+	MOVQ	$160, 40(SP)
+	MOVQ	$192, 48(SP)
+	MOVQ	$224, 56(SP)
+	VMOVDQU64	0(SP), Z28
+
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z0, K1, 0(DI)(Z28*1)
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z1, K1, 8(DI)(Z28*1)
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z2, K1, 16(DI)(Z28*1)
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z3, K1, 24(DI)(Z28*1)
+
+	VZEROUPPER
+	RET
+
+
 // func processS0LeavesAVX512(input *byte, state *uint64, cvs *byte, n uint64)
 //
 // Fused S_0 + leaf absorption: processes n (2..8) contiguous 8192-byte chunks

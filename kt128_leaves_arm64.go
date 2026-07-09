@@ -35,17 +35,30 @@ func processS0LeafPairARM64(input *byte, state *uint64, cv *byte)
 //go:noescape
 func processLeafPairPartialARM64(in0, in1 *byte, nShared uint64, cv *byte, lane1 *uint64)
 
-// hasPartialLeafFuse reports that finalization can pair a stranded complete
-// leaf with the trailing partial leaf's whole rate-blocks in one 2-wide pass.
-const hasPartialLeafFuse = true
+// fuseTailChunks returns how many trailing complete leaves finalization
+// should fold into one pass with the partial leaf's whole rate-blocks, or 0
+// to keep the serial path. The arm64 pair kernel hosts exactly one complete
+// leaf, and pairing pays only where the batch would otherwise strand it in a
+// serial x1 pass: counts 1 and 3 (every other count drains through the
+// batch5, x8, and pair kernels).
+func fuseTailChunks(nFull, _ int) int {
+	if nFull == 1 || nFull == 3 {
+		return 1
+	}
+	return 0
+}
 
-// processLeafPairPartialArch computes the complete leaf's CV while absorbing
-// the partial leaf head's nShared whole rate-blocks into partial's state in
-// the same permutations; the caller finishes the partial leaf's ragged tail
-// and padding through the sponge. complete must be BlockSize bytes and
-// nShared must be len(head)/rate.
-func processLeafPairPartialArch(complete, head []byte, nShared int, cv *[32]byte, partial *sponge) bool {
-	processLeafPairPartialARM64(unsafe.SliceData(complete), unsafe.SliceData(head), uint64(nShared), &cv[0], &partial.a[0])
+// processLeavesTailArch computes the trailing complete leaf's CV while
+// absorbing the partial leaf head's nShared whole rate-blocks into partial's
+// state in the same 2-wide pass; the caller finishes the partial leaf's
+// ragged tail and padding through the sponge. trailing must hold the
+// complete chunk followed contiguously by the partial head; the pair kernel
+// hosts exactly one complete leaf (n == 1).
+func processLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, partial *sponge) bool {
+	if n != 1 {
+		return false
+	}
+	processLeafPairPartialARM64(unsafe.SliceData(trailing), unsafe.SliceData(trailing[BlockSize:]), uint64(nShared), &cvs[0], &partial.a[0])
 	return true
 }
 

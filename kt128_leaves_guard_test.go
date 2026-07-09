@@ -188,17 +188,22 @@ func runLeafKernels(t *testing.T) {
 		}
 	}
 
-	// Complete+partial pair kernel (arm64): reads exactly BlockSize bytes from
-	// the complete leaf and nShared whole rate-blocks from the head.
-	var probeCV [32]byte
-	var probeSponge sponge
-	if processLeafPairPartialArch(make([]byte, BlockSize), nil, 0, &probeCV, &probeSponge) {
+	// Trailing-leaves+partial kernel: reads exactly n*BlockSize complete-chunk
+	// bytes plus nShared whole rate-blocks of the head. On AVX-512 the tail
+	// lane is re-clamped to a dummy after its blocks; a wrong clamp or an
+	// unclamped walk past the head reads the guard.
+	for n := 1; n <= 7; n++ {
+		var probeCVs [256]byte
+		var probeSponge sponge
+		if !processLeavesTailArch(make([]byte, n*BlockSize), n, 0, &probeCVs, &probeSponge) {
+			continue
+		}
 		const headLen = 25 * rate
-		buf := guardedBuffer(t, BlockSize+headLen)
-		var cv [32]byte
+		buf := guardedBuffer(t, n*BlockSize+headLen)
+		var cvsOut [256]byte
 		var s sponge
-		expectNoFault(t, "processLeafPairPartial", func() {
-			processLeafPairPartialArch(buf[:BlockSize], buf[BlockSize:], headLen/rate, &cv, &s)
+		expectNoFault(t, fmt.Sprintf("processLeavesTail(n=%d)", n), func() {
+			processLeavesTailArch(buf, n, headLen/rate, &cvsOut, &s)
 		})
 	}
 

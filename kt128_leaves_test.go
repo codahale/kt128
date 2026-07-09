@@ -115,45 +115,55 @@ func BenchmarkProcessLeavesBatch5(b *testing.B) {
 	}
 }
 
-// TestProcessLeafPairPartial checks the complete+partial pair kernel against
-// the x1 leaf path across head lengths spanning rate-block boundaries.
-func TestProcessLeafPairPartial(t *testing.T) {
+// TestProcessLeavesTail checks the trailing-leaves+partial kernel against the
+// x1 leaf path across lane counts and head lengths spanning rate-block
+// boundaries. arm64 hosts exactly n == 1; AVX-512 hosts n in 1..7.
+func TestProcessLeavesTail(t *testing.T) {
 	suffix := []byte{0xA5, 0x5A, 0x03}
-	for _, headLen := range []int{0, 1, 7, 8, 167, 168, 169, 4096, 8063, 8064, 8188} {
-		input := make([]byte, BlockSize+headLen)
-		for i := range input {
-			input[i] = byte(i*17 + i>>5 + headLen)
-		}
-		complete, head := input[:BlockSize], input[BlockSize:]
+	ran := false
+	for n := 1; n <= 7; n++ {
+		for _, headLen := range []int{0, 1, 7, 8, 167, 168, 169, 4096, 8063, 8064, 8188} {
+			input := make([]byte, n*BlockSize+headLen)
+			for i := range input {
+				input[i] = byte(i*17 + i>>5 + headLen + n)
+			}
+			head := input[n*BlockSize:]
 
-		nShared := headLen / rate
-		var cv [32]byte
-		var s sponge
-		if !processLeafPairPartialArch(complete, head, nShared, &cv, &s) {
-			t.Skip("no complete+partial pair kernel on this platform")
-		}
+			nShared := headLen / rate
+			var cvs [256]byte
+			var s sponge
+			if !processLeavesTailArch(input, n, nShared, &cvs, &s) {
+				continue
+			}
+			ran = true
 
-		// The complete leaf's CV must match the x1 path.
-		var ref sponge
-		leafStateX1(complete, &ref)
-		var want [32]byte
-		ref.squeeze(want[:])
-		if cv != want {
-			t.Errorf("headLen=%d: complete CV got %x, want %x", headLen, cv, want)
-		}
+			// Each complete leaf's CV must match the x1 path.
+			for inst := range n {
+				var ref sponge
+				leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &ref)
+				var want [32]byte
+				ref.squeeze(want[:])
+				if !bytes.Equal(cvs[inst*32:inst*32+32], want[:]) {
+					t.Errorf("n=%d headLen=%d: CV %d got %x, want %x", n, headLen, inst, cvs[inst*32:inst*32+32], want[:])
+				}
+			}
 
-		// Finishing the exported partial state must match a direct sponge over
-		// head || suffix.
-		s.absorb(head[nShared*rate:])
-		s.absorb(suffix)
-		s.padPermute(leafDS)
-		var direct sponge
-		direct.absorb(head)
-		direct.absorb(suffix)
-		direct.padPermute(leafDS)
-		if s != direct {
-			t.Errorf("headLen=%d: partial leaf state diverges from direct absorption", headLen)
+			// Finishing the exported partial state must match a direct sponge
+			// over head || suffix.
+			s.absorb(head[nShared*rate:])
+			s.absorb(suffix)
+			s.padPermute(leafDS)
+			var direct sponge
+			direct.absorb(head)
+			direct.absorb(suffix)
+			direct.padPermute(leafDS)
+			if s != direct {
+				t.Errorf("n=%d headLen=%d: partial leaf state diverges from direct absorption", n, headLen)
+			}
 		}
+	}
+	if !ran {
+		t.Skip("no trailing-leaves+partial kernel on this platform")
 	}
 }
 
@@ -167,6 +177,11 @@ func TestPartialLeafFusionSizes(t *testing.T) {
 			3*BlockSize + 1, 3*BlockSize + BlockSize/2, 4*BlockSize - 1, 4 * BlockSize,
 			4*BlockSize + BlockSize/2, 5*BlockSize + BlockSize/2,
 			7*BlockSize + BlockSize/2, 8 * BlockSize, 8*BlockSize + 1,
+			// Finalization remainders of 1..7 complete leaves plus a partial
+			// (amd64 tail-lane fusion; batched or serial elsewhere).
+			10*BlockSize + BlockSize/2, 12*BlockSize + BlockSize/2,
+			14*BlockSize + BlockSize/2, 16*BlockSize + BlockSize/2,
+			17*BlockSize + 200, 19*BlockSize + rate - 1,
 		} {
 			msg := ptn(size)
 			for _, chunk := range []int{size, BlockSize, BlockSize - 1} {

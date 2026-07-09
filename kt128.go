@@ -345,16 +345,15 @@ func (h *Hasher) absorbMessage(suffix []byte) {
 	nFull := len(buf) / BlockSize
 	head := buf[nFull*BlockSize:]
 
-	// Partial-leaf fusion: one or three buffered complete leaves strand a
-	// serial x1 pass in the batch (every other count drains through the batch
-	// and pair kernels). When the remaining data forms a single partial leaf,
-	// pair the stranded complete leaf with the partial leaf's whole
-	// rate-blocks in one 2-wide pass instead.
-	if hasPartialLeafFuse && (nFull == 1 || nFull == 3) && len(head)+len(suffix) < BlockSize {
-		if nFull == 3 {
-			h.processLeafBatch(buf[:2*BlockSize], 2)
+	// Partial-leaf fusion: when the remaining data forms a single partial
+	// leaf, fold an arch-chosen count of trailing complete leaves and the
+	// partial leaf's whole rate-blocks into one kernel pass; leading leaves
+	// take the batch path.
+	if n := fuseTailChunks(nFull, len(head)/rate); n > 0 && len(head)+len(suffix) < BlockSize {
+		if lead := nFull - n; lead > 0 {
+			h.processLeafBatch(buf[:lead*BlockSize], lead)
 		}
-		h.fuseTrailingLeafPair(buf[(nFull-1)*BlockSize:nFull*BlockSize], head, suffix)
+		h.fuseTrailingLeaves(buf[(nFull-n)*BlockSize:], n, head, suffix)
 	} else {
 		if nFull > 0 {
 			h.processLeafBatch(buf[:nFull*BlockSize], nFull)
@@ -368,22 +367,23 @@ func (h *Hasher) absorbMessage(suffix []byte) {
 	h.final.absorb(treeTerminator[:])
 }
 
-// fuseTrailingLeafPair processes the final complete leaf and the trailing
-// partial leaf head || suffix together: the complete leaf and the partial
-// leaf's whole rate-blocks share one 2-wide kernel pass, and the partial
-// leaf's ragged tail and padding finish in Go from the kernel-exported state.
-// head and suffix together must be less than BlockSize bytes.
-func (h *Hasher) fuseTrailingLeafPair(complete, head, suffix []byte) {
+// fuseTrailingLeaves processes the final n complete leaves and the trailing
+// partial leaf head || suffix together: the complete leaves and the partial
+// leaf's whole rate-blocks share one kernel pass, and the partial leaf's
+// ragged tail and padding finish in Go from the kernel-exported state.
+// trailing holds the n complete chunks followed by head; head and suffix
+// together must be less than BlockSize bytes.
+func (h *Hasher) fuseTrailingLeaves(trailing []byte, n int, head, suffix []byte) {
 	nShared := len(head) / rate
-	var cv [32]byte
+	var cvs [256]byte
 	var s sponge
-	processLeafPairPartialArch(complete, head, nShared, &cv, &s)
-	h.final.absorbCVs(cv[:])
+	processLeavesTailArch(trailing, n, nShared, &cvs, &s)
+	h.final.absorbCVs(cvs[:n*32])
 	s.absorb(head[nShared*rate:])
 	s.absorb(suffix)
 	s.padPermute(leafDS)
 	h.final.absorbCV(&s)
-	h.leafCount += 2
+	h.leafCount += uint64(n) + 1
 }
 
 // absorbTailLeaves processes the final leaves of the logical stream head || tail,

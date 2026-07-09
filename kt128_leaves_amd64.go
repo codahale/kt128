@@ -51,11 +51,39 @@ const hasLeafBatch5 = false
 
 func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
 
-// hasPartialLeafFuse reports that amd64 has no complete+partial pair kernel;
-// finalization drains the trailing leaves serially.
-const hasPartialLeafFuse = false
+//go:noescape
+func processLeavesRunPartialAVX512(input *byte, cvs *byte, n, nShared uint64, lane1 *uint64)
 
-func processLeafPairPartialArch(_, _ []byte, _ int, _ *[32]byte, _ *sponge) bool { return false }
+// fuseTailChunks returns how many trailing complete leaves finalization
+// should fold into one masked pass with the partial leaf's whole rate-blocks,
+// or 0 to keep the serial path. On AVX-512 the tail rides a 2..7-leaf
+// remainder batch as an extra lane essentially free; whole multiples of 8
+// fill all lanes and drain through the x8 kernel instead. A single leftover
+// leaf stays serial: the gather-based absorb only amortizes over enough
+// lanes, and a 2-lane fused pass measured 7% slower than the two in-register
+// x1 passes it replaces (Emerald Rapids, 84 KiB).
+func fuseTailChunks(nFull, nShared int) int {
+	if !cpuid.HasAVX512 || nShared == 0 {
+		return 0
+	}
+	if rem := nFull % 8; rem >= 2 {
+		return rem
+	}
+	return 0
+}
+
+// processLeavesTailArch computes n (1..7) trailing complete leaf CVs while
+// absorbing the following partial leaf's nShared whole rate-blocks into
+// partial's state in the same masked pass; the caller finishes the partial
+// leaf's ragged tail and padding through the sponge. trailing must hold the
+// n complete chunks followed contiguously by the partial head.
+func processLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, partial *sponge) bool {
+	if !cpuid.HasAVX512 {
+		return false
+	}
+	processLeavesRunPartialAVX512(unsafe.SliceData(trailing), &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
+	return true
+}
 
 //go:noescape
 func processS0LeavesAVX512(input *byte, state *uint64, cvs *byte, n uint64)

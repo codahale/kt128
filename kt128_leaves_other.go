@@ -14,13 +14,13 @@ const flushChunks = 1
 
 const hasLeafBatch5 = false
 
-const hasPartialLeafFuse = false
-
 func processLeavesArch(_ []byte, _ *[256]byte) bool { return false }
 
 func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
 
-func processLeafPairPartialArch(_, _ []byte, _ int, _ *[32]byte, _ *sponge) bool { return false }
+func fuseTailChunks(_, _ int) int { return 0 }
+
+func processLeavesTailArch(_ []byte, _, _ int, _ *[256]byte, _ *sponge) bool { return false }
 
 func processLeavesPairArch(_ []byte, _ *[256]byte) bool { return false }
 
