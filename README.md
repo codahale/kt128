@@ -66,9 +66,15 @@ _, _ = h.Read(out)
 Once the input (the message plus the customization string and its length encoding) exceeds one 8 KiB KT128 chunk, the
 implementation switches to tree hashing. Leaf compression is processed in parallel:
 
-- `amd64`: AVX2, with AVX-512 when available (use the `kt128_disable_avx512` build tag to disable AVX-512)
-- `arm64`: optimized assembly path
+- `amd64`: 8-wide AVX-512 kernels for whole batches and masked remainders, with 2-wide AVX-512VL kernels where only
+  two lanes are live; AVX2 kernels otherwise (use the `kt128_disable_avx512` build tag to disable AVX-512)
+- `arm64`: a hybrid scalar/NEON kernel that compresses five chunks per pass — four on the NEON unit and a fifth
+  woven onto the otherwise-idle scalar pipes — with 2-wide NEON kernels draining remainders
 - other targets or `purego`: scalar fallback
+
+The first chunk and any trailing partial chunk are fused into the parallel passes rather than absorbed serially, so
+throughput holds across ragged message sizes. Representative one-shot throughput at 1 MiB: ~6.6 GB/s on an Apple M4
+Pro and ~6.7 GB/s on Intel Emerald Rapids.
 
 ## API Notes
 
