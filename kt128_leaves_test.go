@@ -75,6 +75,46 @@ func TestProcessLeavesPair(t *testing.T) {
 	}
 }
 
+// TestProcessLeavesBatch5 checks the hybrid scalar/NEON 5-leaf kernel against
+// the x1 leaf path. The scalar lane (chunk 4) and both NEON pairs must all
+// produce correct CVs.
+func TestProcessLeavesBatch5(t *testing.T) {
+	input := make([]byte, 5*BlockSize)
+	for i := range input {
+		input[i] = byte(i*37 + i>>7)
+	}
+
+	var got [256]byte
+	if !processLeavesBatch5Arch(input, &got) {
+		t.Skip("no batch5 kernel on this platform")
+	}
+
+	for inst := range 5 {
+		var s sponge
+		leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
+		var want [32]byte
+		s.squeeze(want[:])
+		if !bytes.Equal(got[inst*32:inst*32+32], want[:]) {
+			t.Errorf("instance %d: got %x, want %x", inst, got[inst*32:inst*32+32], want[:])
+		}
+	}
+}
+
+func BenchmarkProcessLeavesBatch5(b *testing.B) {
+	input := make([]byte, 5*BlockSize)
+	for i := range input {
+		input[i] = byte(i)
+	}
+	var cvs [256]byte
+	if !processLeavesBatch5Arch(input, &cvs) {
+		b.Skip("no batch5 kernel on this platform")
+	}
+	b.SetBytes(5 * BlockSize)
+	for b.Loop() {
+		processLeavesBatch5Arch(input, &cvs)
+	}
+}
+
 // TestProcessS0Leaves checks the fused S_0+leaves kernel against the x1 paths
 // for every chunk count: the final-node state must match absorbing
 // S_0 || kt12 marker into a fresh sponge, and each chain value must match the

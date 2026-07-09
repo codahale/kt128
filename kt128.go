@@ -98,13 +98,13 @@ func (h *Hasher) Write(p []byte) (int, error) {
 
 	h.pos += uint64(n)
 
-	lanes := availableLanes
+	lanes := streamChunks
 
 	// Direct fast path: process chunks in place from p to avoid copying. With
 	// buffered data present, mid-size writes keep the buffer-and-batch route
 	// below so buffered chunks aren't pushed through narrow kernels
-	// prematurely; where flushChunks == availableLanes this reduces to the
-	// SIMD-width threshold alone.
+	// prematurely; where flushChunks == streamChunks this reduces to the
+	// flush-unit threshold alone.
 	if len(p) >= flushChunks*BlockSize && (len(h.buf) == 0 || len(p) >= lanes*BlockSize) {
 		// Drain any buffered data: complete the partial tail with bytes from
 		// p, then flush all buffered chunks as a single batch.
@@ -134,7 +134,7 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		return n, nil
 	}
 
-	// Streaming path: accumulate in buf, flush in SIMD-width batches.
+	// Streaming path: accumulate in buf, flush in whole flush units.
 	h.buf = append(h.buf, p...)
 	if processable := len(h.buf) / BlockSize; processable >= lanes {
 		nFlush := (processable / lanes) * lanes
@@ -150,6 +150,28 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	idx := 0
 
 	var cvs [256]byte
+
+	// Hybrid pass: drain leaves five at a time where a hybrid scalar/NEON
+	// kernel exists (arm64), covering four leaves at 2-wide NEON throughput
+	// with a fifth hidden on the scalar pipes. The batch count is
+	// parity-matched to nLeaves so the remainder stays even (or exactly 8):
+	// pairs and the x8 kernel drain it without a stranded serial leaf, which
+	// would cost the same NEON time as the extra hybrid batch saved.
+	if hasLeafBatch5 {
+		n5 := nLeaves / 5
+		if (nLeaves-n5*5)%2 != 0 {
+			n5--
+		}
+		for range n5 {
+			off := idx * BlockSize
+			if !processLeavesBatch5Arch(data[off:off+5*BlockSize], &cvs) {
+				break
+			}
+			h.final.absorbCVs(cvs[:160])
+			idx += 5
+		}
+	}
+
 	for idx+8 <= nLeaves {
 		off := idx * BlockSize
 		processLeaves(data[off:off+8*BlockSize], &cvs)

@@ -6,13 +6,25 @@ import "unsafe"
 
 const availableLanes = 8
 
+// streamChunks is the streaming-path flush unit: two 5-chunk hybrid batches,
+// so buffered flushes ride the hybrid kernel instead of parity-reducing to
+// the pure-NEON x8 path.
+const streamChunks = 10
+
 // flushChunks is the smallest chunk count the direct fast path may flush
 // without meaningful throughput loss: the x2 pair kernel runs within ~5% of
 // the x8 kernel per byte, so any even count is fine.
 const flushChunks = 2
 
+// hasLeafBatch5 reports that this platform can drain complete leaves in
+// 5-chunk hybrid scalar/NEON batches.
+const hasLeafBatch5 = true
+
 //go:noescape
 func processLeavesARM64(input *byte, cvs *byte)
+
+//go:noescape
+func processLeaves5ARM64(input *byte, cvs *byte)
 
 //go:noescape
 func processLeavesPairARM64(input *byte, cvs *byte)
@@ -22,6 +34,15 @@ func processS0LeafPairARM64(input *byte, state *uint64, cv *byte)
 
 func processLeavesArch(input []byte, cvs *[256]byte) bool {
 	processLeavesARM64(unsafe.SliceData(input), &cvs[0])
+	return true
+}
+
+// processLeavesBatch5Arch computes 5 leaf CVs from 5 contiguous chunks via the
+// hybrid scalar/NEON kernel: chunks 0-3 as two x2 NEON pair passes and chunk 4
+// on the scalar pipes, woven into the NEON round stream. Input must be
+// 5*BlockSize contiguous bytes; the CVs land in cvs[:160].
+func processLeavesBatch5Arch(input []byte, cvs *[256]byte) bool {
+	processLeaves5ARM64(unsafe.SliceData(input), &cvs[0])
 	return true
 }
 

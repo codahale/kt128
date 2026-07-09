@@ -144,6 +144,15 @@ func runLeafKernels(t *testing.T) {
 	var probe [256]byte
 	hasPair := processLeavesPairArch(make([]byte, 2*BlockSize), &probe)
 	hasRun := processLeavesRunArch(make([]byte, 2*BlockSize), 2, &probe)
+	hasBatch5 := processLeavesBatch5Arch(make([]byte, 5*BlockSize), &probe)
+
+	// x5 hybrid kernel (arm64): the scalar walker must end exactly at the
+	// buffer end and the NEON walkers within it.
+	if hasBatch5 {
+		expectNoFault(t, "processLeavesBatch5(x5)", func() {
+			processLeavesBatch5Arch(guardedBuffer(t, 5*BlockSize), &cvs)
+		})
+	}
 
 	// x2 pair kernel (arm64): reads exactly 2 contiguous chunks.
 	if hasPair {

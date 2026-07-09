@@ -622,10 +622,10 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 	t.Run("flush exact lane batch", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(BlockSize + 1))
-		_, _ = h.Write(ptn(availableLanes*BlockSize - 1))
+		_, _ = h.Write(ptn(streamChunks*BlockSize - 1))
 
-		if h.leafCount != uint64(availableLanes) {
-			t.Fatalf("leaf count = %d, want %d", h.leafCount, availableLanes)
+		if h.leafCount != uint64(streamChunks) {
+			t.Fatalf("leaf count = %d, want %d", h.leafCount, streamChunks)
 		}
 		if len(h.buf) != 0 {
 			t.Fatalf("buffered bytes = %d, want 0", len(h.buf))

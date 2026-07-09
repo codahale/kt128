@@ -10,6 +10,10 @@ import (
 
 const availableLanes = 8
 
+// streamChunks is the streaming-path flush unit; amd64 has no hybrid batch
+// kernel, so it is the SIMD width.
+const streamChunks = availableLanes
+
 // flushChunks is the smallest chunk count the direct fast path may flush
 // without meaningful throughput loss. amd64 has no cheap narrow kernel (the
 // remainder paths use masked gathers or dummy lanes), so it stays at the full
@@ -40,6 +44,12 @@ func processLeavesArch(input []byte, cvs *[256]byte) bool {
 // processLeavesPairArch reports that no 2-wide pair kernel is available on
 // amd64; the run kernel (AVX-512) or padded x8 path drains remainders instead.
 func processLeavesPairArch(_ []byte, _ *[256]byte) bool { return false }
+
+// hasLeafBatch5 reports that amd64 has no hybrid scalar/SIMD batch kernel;
+// with 16 general-purpose registers a woven scalar lane would spill heavily.
+const hasLeafBatch5 = false
+
+func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
 
 //go:noescape
 func processS0LeavesAVX512(input *byte, state *uint64, cvs *byte, n uint64)
