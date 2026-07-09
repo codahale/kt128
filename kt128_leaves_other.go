@@ -18,6 +18,10 @@ const hasLeafBatch5 = false
 // no pair kernel on this platform.
 const pairRemainderMax = 0
 
+// hasLeafX8 reports that the scalar fallback has no batch kernel; the
+// generic 8-wide path is eight serial sponges, no faster than the x1 loop.
+const hasLeafX8 = false
+
 func processLeavesArch(_ []byte, _ *[256]byte) bool { return false }
 
 func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }

@@ -20,6 +20,10 @@ const streamChunks = availableLanes
 // SIMD width.
 const flushChunks = 8
 
+// hasLeafX8 reports that amd64 drains whole 8-leaf batches through a
+// dedicated 8-wide kernel.
+const hasLeafX8 = true
+
 //go:noescape
 func processLeavesAVX512(input *byte, cvs *byte)
 

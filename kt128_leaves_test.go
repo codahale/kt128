@@ -20,9 +20,11 @@ func TestProcessLeaves(t *testing.T) {
 	var want [256]byte
 	processLeavesGeneric(input, &want)
 
-	// Compute CVs via arch-dispatched path.
+	// Compute CVs via the arch kernel.
 	var got [256]byte
-	processLeaves(input, &got)
+	if !processLeavesArch(input, &got) {
+		t.Skip("no x8 kernel on this platform")
+	}
 
 	if got != want {
 		for inst := range 8 {
@@ -46,9 +48,12 @@ func BenchmarkProcessLeaves(b *testing.B) {
 		input[i] = byte(i)
 	}
 	var cvs [256]byte
+	if !processLeavesArch(input, &cvs) {
+		b.Skip("no x8 kernel on this platform")
+	}
 	b.SetBytes(8 * blockSize)
 	for b.Loop() {
-		processLeaves(input, &cvs)
+		processLeavesArch(input, &cvs)
 	}
 }
 

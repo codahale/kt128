@@ -135,9 +135,11 @@ func runLeafKernels(t *testing.T) {
 	var cvs [256]byte
 
 	// x8 fused kernel: reads exactly 8 contiguous chunks.
-	expectNoFault(t, "processLeaves(x8)", func() {
-		processLeaves(guardedBuffer(t, 8*BlockSize), &cvs)
-	})
+	if hasLeafX8 {
+		expectNoFault(t, "processLeaves(x8)", func() {
+			processLeaves(guardedBuffer(t, 8*BlockSize), &cvs)
+		})
+	}
 
 	// Probe kernel availability with throwaway heap buffers so the guarded run
 	// below is a single, clean call.

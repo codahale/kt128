@@ -154,9 +154,9 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	// Hybrid pass: drain leaves five at a time where a hybrid scalar/NEON
 	// kernel exists (arm64), covering four leaves at 2-wide NEON throughput
 	// with a fifth hidden on the scalar pipes. The batch count is
-	// parity-matched to nLeaves so the remainder stays even (or exactly 8):
-	// pairs and the x8 kernel drain it without a stranded serial leaf, which
-	// would cost the same NEON time as the extra hybrid batch saved.
+	// parity-matched to nLeaves so the remainder stays even (up to 8): the
+	// pair loop drains it without a stranded serial leaf, which would cost
+	// the same NEON time as the extra hybrid batch saved.
 	if hasLeafBatch5 {
 		n5 := nLeaves / 5
 		if (nLeaves-n5*5)%2 != 0 {
@@ -172,7 +172,7 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 		}
 	}
 
-	for idx+8 <= nLeaves {
+	for hasLeafX8 && idx+8 <= nLeaves {
 		off := idx * BlockSize
 		processLeaves(data[off:off+8*BlockSize], &cvs)
 		h.final.absorbCVs(cvs[:])

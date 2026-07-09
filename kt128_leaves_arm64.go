@@ -24,8 +24,10 @@ const pairRemainderMax = availableLanes
 // 5-chunk hybrid scalar/NEON batches.
 const hasLeafBatch5 = true
 
-//go:noescape
-func processLeavesARM64(input *byte, cvs *byte)
+// hasLeafX8 reports that arm64 has no dedicated x8 kernel: it was four
+// sequential x2 pair passes inlined into one call, so a remainder of eight
+// drains through the pair loop at the same cost.
+const hasLeafX8 = false
 
 //go:noescape
 func processLeaves5ARM64(input *byte, cvs *byte)
@@ -66,10 +68,7 @@ func processLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, part
 	return true
 }
 
-func processLeavesArch(input []byte, cvs *[256]byte) bool {
-	processLeavesARM64(unsafe.SliceData(input), &cvs[0])
-	return true
-}
+func processLeavesArch(_ []byte, _ *[256]byte) bool { return false }
 
 // processLeavesBatch5Arch computes 5 leaf CVs from 5 contiguous chunks via the
 // hybrid scalar/NEON kernel: chunks 0-3 as two x2 NEON pair passes and chunk 4
