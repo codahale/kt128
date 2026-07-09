@@ -152,14 +152,19 @@ func runLeafKernels(t *testing.T) {
 		})
 	}
 
-	// Fused S_0+leaf kernel (arm64): reads exactly 2 contiguous chunks.
-	var probeFinal sponge
-	var probeCV [32]byte
-	if processS0LeafPairArch(make([]byte, 2*BlockSize), &probeFinal, &probeCV) {
+	// Fused S_0+leaves kernel: must read exactly n contiguous chunks. On
+	// AVX-512 the dummy lanes must stay clamped within chunk 0.
+	for n := 2; n <= availableLanes; n++ {
+		var probeFinal sponge
+		var probeCVs [256]byte
+		if !processS0LeavesArch(make([]byte, n*BlockSize), n, &probeFinal, &probeCVs) {
+			continue
+		}
+		buf := guardedBuffer(t, n*BlockSize)
 		var final sponge
-		var cv [32]byte
-		expectNoFault(t, "processS0LeafPair(x2)", func() {
-			processS0LeafPairArch(guardedBuffer(t, 2*BlockSize), &final, &cv)
+		var cvs [256]byte
+		expectNoFault(t, fmt.Sprintf("processS0Leaves(n=%d)", n), func() {
+			processS0LeavesArch(buf, n, &final, &cvs)
 		})
 	}
 

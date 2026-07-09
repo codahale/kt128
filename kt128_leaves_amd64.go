@@ -41,9 +41,40 @@ func processLeavesArch(input []byte, cvs *[256]byte) bool {
 // amd64; the run kernel (AVX-512) or padded x8 path drains remainders instead.
 func processLeavesPairArch(_ []byte, _ *[256]byte) bool { return false }
 
-// processS0LeafPairArch reports that no fused S_0+leaf kernel is available on
-// amd64; S_0 is absorbed through the x1 sponge path instead.
-func processS0LeafPairArch(_ []byte, _ *sponge, _ *[32]byte) bool { return false }
+//go:noescape
+func processS0LeavesAVX512(input *byte, state *uint64, cvs *byte, n uint64)
+
+// processS0LeavesArch fuses the final node's absorption of S_0 || kt12 marker
+// with leaf compression in one 8-wide AVX-512 pass. input must be n*BlockSize
+// contiguous bytes (S_0 then n-1 leaves, n in 2..8) and final must be a zero
+// sponge. On return, final holds the state after S_0 || marker and
+// cvs[32:n*32] the leaves' chain values.
+func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) bool {
+	if !cpuid.HasAVX512 || n < 2 || n > 8 {
+		return false
+	}
+	processS0LeavesAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
+	final.pos = BlockSize%rate + len(kt12Marker) // mid-block after S_0 || marker
+	return true
+}
+
+// fuseS0Chunks returns how many chunks (S_0 plus leaves) the fused kernel
+// should consume from a first write containing the given number of full
+// chunks, or 0 to skip fusion. Up to availableLanes chunks fuse into one
+// 8-wide pass. At or below one pass fusion is a strict win: those leaves
+// would otherwise be buffered and run-kernel'd at finalization. Above it,
+// fusion is taken only when the chunk count is a whole number of passes, so
+// consuming availableLanes chunks doesn't leave a larger buffered tail than
+// the unfused path.
+func fuseS0Chunks(chunks int) int {
+	if !cpuid.HasAVX512 || chunks < 2 {
+		return 0
+	}
+	if chunks <= availableLanes || chunks%availableLanes == 0 {
+		return min(chunks, availableLanes)
+	}
+	return 0
+}
 
 // processLeavesRunArch computes n (2..7) leaf CVs by reading the chunks directly
 // with no scratch buffer: a single 8-wide masked-gather pass on AVX-512, or one

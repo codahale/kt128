@@ -68,17 +68,17 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	n := len(p)
 
 	if h.state == stateSingle {
-		// Fused fast path: with S_0 and the first leaf contiguous in p and
-		// nothing absorbed yet, process both together in one x2 kernel pass.
-		// Skipped when the leaves after S_0 form whole SIMD-width batches:
-		// consuming one would strand lanes-1 of them in the buffer instead of
-		// flushing them all directly from p.
-		leaves := (len(p) - BlockSize) / BlockSize
-		fusable := h.pos == 0 && leaves >= 1 &&
-			(leaves < availableLanes || leaves%availableLanes != 0)
-		if fusable && h.startTreeModeFused(p) {
+		// Fused fast path: with S_0 and at least one full leaf contiguous in
+		// p and nothing absorbed yet, process them together in one fused
+		// kernel pass. Each arch decides how many chunks to take (and when
+		// fusion would strand leaves in the buffer) via fuseS0Chunks.
+		nFuse := 0
+		if h.pos == 0 {
+			nFuse = fuseS0Chunks(len(p) / BlockSize)
+		}
+		if nFuse >= 2 && h.startTreeModeFused(p, nFuse) {
 			// The rest of p is ordinary leaf data.
-			p = p[2*BlockSize:]
+			p = p[nFuse*BlockSize:]
 		} else {
 			// Single-node finalization and tree-mode S_0 absorb the first
 			// chunk into the final node identically, so message bytes are
@@ -276,18 +276,18 @@ func (h *Hasher) startTreeMode() {
 }
 
 // startTreeModeFused enters tree mode by computing the final node's
-// S_0 || marker state and the first leaf's chain value together in one fused
-// x2 pass, where a kernel exists. It requires an untouched Hasher and two
-// full chunks contiguous in p, and consumes p[:2*BlockSize].
-func (h *Hasher) startTreeModeFused(p []byte) bool {
-	var cv [32]byte
-	if !processS0LeafPairArch(p[:2*BlockSize], &h.final, &cv) {
+// S_0 || marker state and the first n-1 leaves' chain values together in one
+// fused kernel pass, where a kernel exists. It requires an untouched Hasher
+// and n full chunks contiguous in p, and consumes p[:n*BlockSize].
+func (h *Hasher) startTreeModeFused(p []byte, n int) bool {
+	var cvs [256]byte
+	if !processS0LeavesArch(p[:n*BlockSize], n, &h.final, &cvs) {
 		return false
 	}
 	h.ds = treeDS
 	h.state = stateTree
-	h.final.absorbCVs(cv[:])
-	h.leafCount++
+	h.final.absorbCVs(cvs[32 : n*32])
+	h.leafCount += uint64(n - 1)
 	return true
 }
 

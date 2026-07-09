@@ -75,35 +75,45 @@ func TestProcessLeavesPair(t *testing.T) {
 	}
 }
 
-// TestProcessS0LeafPair checks the fused S_0+leaf kernel against the x1 paths:
-// the final-node state must match absorbing S_0 || kt12 marker into a fresh
-// sponge, and the chain value must match the x1 leaf path.
-func TestProcessS0LeafPair(t *testing.T) {
-	input := make([]byte, 2*BlockSize)
-	for i := range input {
-		input[i] = byte(i*13 + i>>6)
-	}
+// TestProcessS0Leaves checks the fused S_0+leaves kernel against the x1 paths
+// for every chunk count: the final-node state must match absorbing
+// S_0 || kt12 marker into a fresh sponge, and each chain value must match the
+// x1 leaf path.
+func TestProcessS0Leaves(t *testing.T) {
+	ran := false
+	for n := 2; n <= availableLanes; n++ {
+		input := make([]byte, n*BlockSize)
+		for i := range input {
+			input[i] = byte(i*13 + i>>6 + n)
+		}
 
-	var final sponge
-	var cv [32]byte
-	if !processS0LeafPairArch(input, &final, &cv) {
-		t.Skip("no fused S0+leaf kernel on this platform")
-	}
+		var final sponge
+		var cvs [256]byte
+		if !processS0LeavesArch(input, n, &final, &cvs) {
+			continue
+		}
+		ran = true
 
-	var wantFinal sponge
-	wantFinal.absorb(input[:BlockSize])
-	wantFinal.absorb(kt12Marker[:])
-	if final != wantFinal {
-		t.Errorf("final-node state:\n got %x pos=%d\nwant %x pos=%d",
-			final.a, final.pos, wantFinal.a, wantFinal.pos)
-	}
+		var wantFinal sponge
+		wantFinal.absorb(input[:BlockSize])
+		wantFinal.absorb(kt12Marker[:])
+		if final != wantFinal {
+			t.Errorf("n=%d: final-node state:\n got %x pos=%d\nwant %x pos=%d",
+				n, final.a, final.pos, wantFinal.a, wantFinal.pos)
+		}
 
-	var s sponge
-	leafStateX1(input[BlockSize:], &s)
-	var want [32]byte
-	s.squeeze(want[:])
-	if cv != want {
-		t.Errorf("leaf CV: got %x, want %x", cv, want)
+		for leaf := 1; leaf < n; leaf++ {
+			var s sponge
+			leafStateX1(input[leaf*BlockSize:(leaf+1)*BlockSize], &s)
+			var want [32]byte
+			s.squeeze(want[:])
+			if !bytes.Equal(cvs[leaf*32:leaf*32+32], want[:]) {
+				t.Errorf("n=%d leaf %d: CV got %x, want %x", n, leaf, cvs[leaf*32:leaf*32+32], want[:])
+			}
+		}
+	}
+	if !ran {
+		t.Skip("no fused S0+leaves kernel on this platform")
 	}
 }
 

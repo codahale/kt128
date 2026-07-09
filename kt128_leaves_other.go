@@ -14,4 +14,6 @@ func processLeavesPairArch(_ []byte, _ *[256]byte) bool { return false }
 
 func processLeavesRunArch(_ []byte, _ int, _ *[256]byte) bool { return false }
 
-func processS0LeafPairArch(_ []byte, _ *sponge, _ *[32]byte) bool { return false }
+func processS0LeavesArch(_ []byte, _ int, _ *sponge, _ *[256]byte) bool { return false }
+
+func fuseS0Chunks(_ int) int { return 0 }

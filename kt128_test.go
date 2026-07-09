@@ -555,7 +555,11 @@ func TestReadPartitionInvariance(t *testing.T) {
 // first leaf arriving in one Write of an untouched Hasher) produces the same
 // output as the incremental path it bypasses.
 func TestWriteFusedS0Leaf(t *testing.T) {
-	for _, size := range []int{2 * BlockSize, 2*BlockSize + 1, 3 * BlockSize, 8*BlockSize + 37} {
+	sizes := []int{
+		2 * BlockSize, 2*BlockSize + 1, 3 * BlockSize, 5*BlockSize + 11,
+		8 * BlockSize, 8*BlockSize + 37, 9 * BlockSize, 16 * BlockSize, 16*BlockSize + 5,
+	}
+	for _, size := range sizes {
 		msg := ptn(size)
 
 		one := New(nil)
