@@ -3,6 +3,11 @@
 // X25-X31 are scratch. All instructions are the 128-bit EVEX forms of the x8
 // kernel's, so this requires AVX-512F+VL (implied by the package's HasAVX512
 // gate). R11 must point to the round constant table.
+//
+// KEEP IN SYNC with the X8_* macros in permute_amd64_avx512.h: the Go asm
+// preprocessor cannot parameterize the register class, so the two are
+// parallel transcriptions of the same schedule (register-for-register,
+// Z<n> ↔ X<n>).
 
 // XOR five lanes into dst: dst = a ^ b ^ c ^ d ^ e.
 #define XOR5_AVX512_2X(dst, a, b, c, d, e) \

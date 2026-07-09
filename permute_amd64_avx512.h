@@ -2,6 +2,9 @@
 // State lives in Z0-Z24 (25 lanes × 8 uint64s per ZMM register).
 // Z25-Z31 are scratch.  No stack scratch needed for theta.
 // R11 must point to the round constant table.
+//
+// KEEP IN SYNC with the X2_* macros in permute_amd64_x2.h, a parallel
+// transcription of the same schedule at XMM width (Z<n> ↔ X<n>).
 
 #define ROT64_AVX512_8X(reg, amount) \
 	VPROLQ	$amount, reg, reg
