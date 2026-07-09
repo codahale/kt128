@@ -145,7 +145,16 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// processLeafBatch computes leaf CVs for nLeaves complete chunks using fused SIMD leaf processing.
+// processLeafBatch computes leaf CVs for nLeaves complete chunks, draining
+// them through a pipeline of arch kernels from widest to narrowest. Each
+// stage is gated by the scheduling policy in the kt128_leaves_* arch files
+// (constants and fuse* functions), which record the measured tradeoffs:
+//
+//	batch5  parity-matched 5-chunk hybrid batches   arm64
+//	x8      whole 8-leaf batches                    amd64
+//	pair    2-wide remainders up to pairRemainderMax arm64 (any), amd64 (=2)
+//	run     2..7-leaf remainders in one masked pass amd64
+//	x1      whatever remains, serially              all
 func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	idx := 0
 
