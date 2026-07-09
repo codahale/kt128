@@ -242,9 +242,9 @@ func (h *Hasher) Clone() *Hasher {
 }
 
 // Reset resets the Hasher to its initial state, preserving the customization
-// string passed to New.
+// string passed to New. Like the standard library hash implementations, it
+// does not scrub buffered message data from memory.
 func (h *Hasher) Reset() {
-	clear(h.buf)
 	h.buf = h.buf[:0]
 	h.final.reset()
 	h.pos = 0
