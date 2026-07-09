@@ -105,16 +105,19 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 // fuseS0Chunks returns how many chunks (S_0 plus leaves) the fused kernel
 // should consume from a first write containing the given number of full
 // chunks, or 0 to skip fusion. Up to availableLanes chunks fuse into one
-// 8-wide pass. At or below one pass fusion is a strict win: those leaves
-// would otherwise be buffered and run-kernel'd at finalization. Above it,
-// fusion is taken only when the chunk count is a whole number of passes, so
-// consuming availableLanes chunks doesn't leave a larger buffered tail than
-// the unfused path.
+// 8-wide pass, replacing the serial S_0 absorption: at or below one pass
+// this is a strict win, and above it the 2..7 chunks the fused pass strands
+// past the last whole batch drain in one masked pass at finalization (tail
+// fusion), so fusing still saves the serial S_0 pass outright. The exception
+// is a chunk count of 1 mod availableLanes: fusing would strand a single
+// leaf, which tail fusion declines (the gather absorb doesn't amortize at 2
+// lanes), so the stranded leaf's serial pass cancels the saving and fusion
+// only adds a buffer copy.
 func fuseS0Chunks(chunks int) int {
 	if !cpuid.HasAVX512 || chunks < 2 {
 		return 0
 	}
-	if chunks <= availableLanes || chunks%availableLanes == 0 {
+	if chunks <= availableLanes || chunks%availableLanes != 1 {
 		return min(chunks, availableLanes)
 	}
 	return 0
