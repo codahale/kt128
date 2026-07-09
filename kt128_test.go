@@ -702,16 +702,19 @@ func BenchmarkWriteStreaming(b *testing.B) {
 	}
 }
 
+// BenchmarkRead measures steady-state squeeze throughput: the hasher is
+// finalized once and each iteration continues the XOF output stream, so no
+// setup or absorption is timed.
 func BenchmarkRead(b *testing.B) {
 	for _, outSize := range []int{32, 64, 256, 1024} {
 		b.Run(fmt.Sprintf("%d", outSize), func(b *testing.B) {
+			h := New(nil)
+			_, _ = h.Write(ptn(BlockSize + 1))
 			out := make([]byte, outSize)
 			b.SetBytes(int64(outSize))
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				h := New(nil)
-				_, _ = h.Write(ptn(BlockSize + 1))
 				_, _ = io.ReadFull(h, out)
 			}
 		})
