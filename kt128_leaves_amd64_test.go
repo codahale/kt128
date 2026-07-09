@@ -40,6 +40,65 @@ func TestProcessLeavesRunAVX2(t *testing.T) {
 	}
 }
 
+// TestProcessLeavesPairAVX512 checks the 2-wide XMM pair kernel against the x1
+// leaf path.
+func TestProcessLeavesPairAVX512(t *testing.T) {
+	if !cpuid.HasAVX512 {
+		t.Skip("no AVX-512")
+	}
+	input := make([]byte, 2*BlockSize)
+	for i := range input {
+		input[i] = byte(i*29 + i>>6)
+	}
+	var got [256]byte
+	processLeavesPairAVX512(&input[0], &got[0])
+	for inst := range 2 {
+		var s sponge
+		leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
+		var want [256]byte
+		s.squeeze(want[:32])
+		if !bytes.Equal(got[inst*32:inst*32+32], want[:32]) {
+			t.Errorf("instance %d: got %x, want %x", inst, got[inst*32:inst*32+32], want[:32])
+		}
+	}
+}
+
+// BenchmarkPairVsRun compares the narrow XMM pair kernel against the masked
+// 8-wide run kernel at the chunk counts where scheduling must choose.
+func BenchmarkPairVsRun(b *testing.B) {
+	if !cpuid.HasAVX512 {
+		b.Skip("no AVX-512")
+	}
+	input := make([]byte, 8*BlockSize)
+	for i := range input {
+		input[i] = byte(i)
+	}
+	var cvs [256]byte
+
+	b.Run("pair_x2", func(b *testing.B) {
+		b.SetBytes(2 * BlockSize)
+		for b.Loop() {
+			processLeavesPairAVX512(&input[0], &cvs[0])
+		}
+	})
+	for _, n := range []int{2, 4, 6} {
+		b.Run(fmt.Sprintf("run_n%d", n), func(b *testing.B) {
+			b.SetBytes(int64(n) * BlockSize)
+			for b.Loop() {
+				processLeavesRunAVX512(&input[0], &cvs[0], uint64(n))
+			}
+		})
+		b.Run(fmt.Sprintf("pairs_n%d", n), func(b *testing.B) {
+			b.SetBytes(int64(n) * BlockSize)
+			for b.Loop() {
+				for off := 0; off < n*BlockSize; off += 2 * BlockSize {
+					processLeavesPairAVX512(&input[off], &cvs[0])
+				}
+			}
+		})
+	}
+}
+
 // BenchmarkWriteForceAVX2 measures one-shot hashing with the AVX2 kernels forced
 // (HasAVX512 disabled), so the AVX2 remainder path is exercised on this host.
 func BenchmarkWriteForceAVX2(b *testing.B) {

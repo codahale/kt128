@@ -14,6 +14,10 @@ const flushChunks = 1
 
 const hasLeafBatch5 = false
 
+// pairRemainderMax bounds the leaf counts the pair loop may drain; there is
+// no pair kernel on this platform.
+const pairRemainderMax = 0
+
 func processLeavesArch(_ []byte, _ *[256]byte) bool { return false }
 
 func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
@@ -28,4 +32,4 @@ func processLeavesRunArch(_ []byte, _ int, _ *[256]byte) bool { return false }
 
 func processS0LeavesArch(_ []byte, _ int, _ *sponge, _ *[256]byte) bool { return false }
 
-func fuseS0Chunks(_ int) int { return 0 }
+func fuseS0Chunks(_, _ int) int { return 0 }

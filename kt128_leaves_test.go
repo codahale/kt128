@@ -182,6 +182,9 @@ func TestPartialLeafFusionSizes(t *testing.T) {
 			10*BlockSize + BlockSize/2, 12*BlockSize + BlockSize/2,
 			14*BlockSize + BlockSize/2, 16*BlockSize + BlockSize/2,
 			17*BlockSize + 200, 19*BlockSize + rate - 1,
+			// Chunk counts of 1 mod 8, on both sides of the whole-rate-block
+			// tail threshold that decides amd64 S_0 fusion.
+			9*BlockSize + rate, 9*BlockSize + rate - 1, 17*BlockSize + 100,
 		} {
 			msg := ptn(size)
 			for _, chunk := range []int{size, BlockSize, BlockSize - 1} {

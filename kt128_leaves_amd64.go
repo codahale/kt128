@@ -30,6 +30,12 @@ func processLeavesAVX2(input *byte, cvs *byte)
 func processLeavesRunAVX512(input *byte, cvs *byte, n uint64)
 
 //go:noescape
+func processLeavesPairAVX512(input *byte, cvs *byte)
+
+//go:noescape
+func processS0LeafPairAVX512(input *byte, state *uint64, cv *byte)
+
+//go:noescape
 func processLeavesQuadAVX2(in0, in1, in2, in3, cvs *byte)
 
 func processLeavesArch(input []byte, cvs *[256]byte) bool {
@@ -41,9 +47,21 @@ func processLeavesArch(input []byte, cvs *[256]byte) bool {
 	return true
 }
 
-// processLeavesPairArch reports that no 2-wide pair kernel is available on
-// amd64; the run kernel (AVX-512) or padded x8 path drains remainders instead.
-func processLeavesPairArch(_ []byte, _ *[256]byte) bool { return false }
+// pairRemainderMax bounds the leaf counts the pair loop may drain: a 2-wide
+// XMM pass costs ~0.63 of a flat masked pass (Emerald Rapids), so a pair
+// wins for a remainder of exactly two but chains of pairs lose to the
+// masked run kernel from three up.
+const pairRemainderMax = 2
+
+// processLeavesPairArch computes 2 leaf CVs from 2 contiguous chunks via a
+// single 2-wide XMM pass, reading directly from the input with plain loads.
+func processLeavesPairArch(input []byte, cvs *[256]byte) bool {
+	if !cpuid.HasAVX512 {
+		return false
+	}
+	processLeavesPairAVX512(unsafe.SliceData(input), &cvs[0])
+	return true
+}
 
 // hasLeafBatch5 reports that amd64 has no hybrid scalar/SIMD batch kernel;
 // with 16 general-purpose registers a woven scalar lane would spill heavily.
@@ -54,32 +72,38 @@ func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
 //go:noescape
 func processLeavesRunPartialAVX512(input *byte, cvs *byte, n, nShared uint64, lane1 *uint64)
 
+//go:noescape
+func processLeafPairPartialAVX512(in0, in1 *byte, nShared uint64, cv *byte, lane1 *uint64)
+
 // fuseTailChunks returns how many trailing complete leaves finalization
-// should fold into one masked pass with the partial leaf's whole rate-blocks,
-// or 0 to keep the serial path. On AVX-512 the tail rides a 2..7-leaf
-// remainder batch as an extra lane essentially free; whole multiples of 8
-// fill all lanes and drain through the x8 kernel instead. A single leftover
-// leaf stays serial: the gather-based absorb only amortizes over enough
-// lanes, and a 2-lane fused pass measured 7% slower than the two in-register
-// x1 passes it replaces (Emerald Rapids, 84 KiB).
+// should fold into one pass with the partial leaf's whole rate-blocks, or 0
+// to keep the serial path. On AVX-512 the tail rides a 2..7-leaf remainder
+// batch as an extra masked gather lane essentially free; whole multiples of
+// 8 fill all lanes and drain through the x8 kernel instead. A single
+// leftover leaf pairs with the tail in a 2-wide XMM pass: the masked run
+// kernel loses at 2 lanes (its gather absorb only amortizes over enough
+// lanes) but the pair pass costs well under the two serial x1 passes it
+// replaces.
 func fuseTailChunks(nFull, nShared int) int {
 	if !cpuid.HasAVX512 || nShared == 0 {
 		return 0
 	}
-	if rem := nFull % 8; rem >= 2 {
-		return rem
-	}
-	return 0
+	return nFull % 8
 }
 
 // processLeavesTailArch computes n (1..7) trailing complete leaf CVs while
 // absorbing the following partial leaf's nShared whole rate-blocks into
-// partial's state in the same masked pass; the caller finishes the partial
-// leaf's ragged tail and padding through the sponge. trailing must hold the
-// n complete chunks followed contiguously by the partial head.
+// partial's state in the same pass — a 2-wide XMM pair for n == 1, a masked
+// gather pass otherwise; the caller finishes the partial leaf's ragged tail
+// and padding through the sponge. trailing must hold the n complete chunks
+// followed contiguously by the partial head.
 func processLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, partial *sponge) bool {
 	if !cpuid.HasAVX512 {
 		return false
+	}
+	if n == 1 {
+		processLeafPairPartialAVX512(unsafe.SliceData(trailing), unsafe.SliceData(trailing[BlockSize:]), uint64(nShared), &cvs[0], &partial.a[0])
+		return true
 	}
 	processLeavesRunPartialAVX512(unsafe.SliceData(trailing), &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
 	return true
@@ -97,27 +121,32 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 	if !cpuid.HasAVX512 || n < 2 || n > 8 {
 		return false
 	}
-	processS0LeavesAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
+	if n == 2 {
+		// A 2-wide XMM pass at pair cost instead of a flat masked pass.
+		processS0LeafPairAVX512(unsafe.SliceData(input), &final.a[0], &cvs[32])
+	} else {
+		processS0LeavesAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
+	}
 	final.pos = BlockSize%rate + len(kt12Marker) // mid-block after S_0 || marker
 	return true
 }
 
 // fuseS0Chunks returns how many chunks (S_0 plus leaves) the fused kernel
 // should consume from a first write containing the given number of full
-// chunks, or 0 to skip fusion. Up to availableLanes chunks fuse into one
-// 8-wide pass, replacing the serial S_0 absorption: at or below one pass
-// this is a strict win, and above it the 2..7 chunks the fused pass strands
-// past the last whole batch drain in one masked pass at finalization (tail
-// fusion), so fusing still saves the serial S_0 pass outright. The exception
-// is a chunk count of 1 mod availableLanes: fusing would strand a single
-// leaf, which tail fusion declines (the gather absorb doesn't amortize at 2
-// lanes), so the stranded leaf's serial pass cancels the saving and fusion
-// only adds a buffer copy.
-func fuseS0Chunks(chunks int) int {
+// chunks (plus tail trailing bytes), or 0 to skip fusion. Up to
+// availableLanes chunks fuse into one pass (2-wide XMM at exactly two,
+// 8-wide masked above), replacing the serial S_0 absorption: at or below one
+// pass this is a strict win, and above it the 1..7 chunks the fused pass
+// strands past the last whole batch drain in one fused pass at finalization
+// (tail fusion), so fusing still saves the serial S_0 pass outright. The
+// exception is a chunk count of 1 mod availableLanes with less than a whole
+// rate-block of tail: the stranded leaf then has no partial to pair with,
+// its serial pass cancels the saving, and fusion only adds a buffer copy.
+func fuseS0Chunks(chunks, tail int) int {
 	if !cpuid.HasAVX512 || chunks < 2 {
 		return 0
 	}
-	if chunks <= availableLanes || chunks%availableLanes != 1 {
+	if chunks <= availableLanes || chunks%availableLanes != 1 || tail >= rate {
 		return min(chunks, availableLanes)
 	}
 	return 0

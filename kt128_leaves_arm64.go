@@ -16,6 +16,10 @@ const streamChunks = 10
 // the x8 kernel per byte, so any even count is fine.
 const flushChunks = 2
 
+// pairRemainderMax bounds the leaf counts the pair loop may drain; the pair
+// kernel is the fastest narrow option at any remainder on arm64.
+const pairRemainderMax = availableLanes
+
 // hasLeafBatch5 reports that this platform can drain complete leaves in
 // 5-chunk hybrid scalar/NEON batches.
 const hasLeafBatch5 = true
@@ -108,7 +112,7 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 // consuming one would strand lanes-1 of them in the buffer instead of
 // flushing them all directly (measured +2.4% and an 8 KiB allocation at
 // 72 KiB).
-func fuseS0Chunks(chunks int) int {
+func fuseS0Chunks(chunks, _ int) int {
 	leaves := chunks - 1
 	if leaves >= 1 && (leaves < availableLanes || leaves%availableLanes != 0) {
 		return 2

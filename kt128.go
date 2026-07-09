@@ -74,7 +74,7 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		// fusion would strand leaves in the buffer) via fuseS0Chunks.
 		nFuse := 0
 		if h.pos == 0 {
-			nFuse = fuseS0Chunks(len(p) / BlockSize)
+			nFuse = fuseS0Chunks(len(p)/BlockSize, len(p)%BlockSize)
 		}
 		if nFuse >= 2 && h.startTreeModeFused(p, nFuse) {
 			// The rest of p is ordinary leaf data.
@@ -179,11 +179,12 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 		idx += 8
 	}
 
-	// Drain a 2..7 leaf remainder in native 2-wide pairs where a pair kernel
-	// exists (arm64), reading directly from the input with no scratch buffer.
-	// Padding to 8 here would copy and zero a 64 KiB buffer only to discard the
-	// unused lanes' output.
-	for idx+2 <= nLeaves {
+	// Drain a small leaf remainder in native 2-wide pairs where a pair kernel
+	// exists, reading directly from the input with no scratch buffer.
+	// pairRemainderMax bounds the counts pairs may drain: on arm64 pairs are
+	// the fastest narrow option at any remainder, while on amd64 a pair beats
+	// the flat masked run pass only for a remainder of exactly two.
+	for idx+2 <= nLeaves && nLeaves-idx <= pairRemainderMax {
 		off := idx * BlockSize
 		if !processLeavesPairArch(data[off:off+2*BlockSize], &cvs) {
 			break
