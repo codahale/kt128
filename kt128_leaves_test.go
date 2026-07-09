@@ -115,6 +115,75 @@ func BenchmarkProcessLeavesBatch5(b *testing.B) {
 	}
 }
 
+// TestProcessLeafPairPartial checks the complete+partial pair kernel against
+// the x1 leaf path across head lengths spanning rate-block boundaries.
+func TestProcessLeafPairPartial(t *testing.T) {
+	suffix := []byte{0xA5, 0x5A, 0x03}
+	for _, headLen := range []int{0, 1, 7, 8, 167, 168, 169, 4096, 8063, 8064, 8188} {
+		input := make([]byte, BlockSize+headLen)
+		for i := range input {
+			input[i] = byte(i*17 + i>>5 + headLen)
+		}
+		complete, head := input[:BlockSize], input[BlockSize:]
+
+		nShared := headLen / rate
+		var cv [32]byte
+		var s sponge
+		if !processLeafPairPartialArch(complete, head, nShared, &cv, &s) {
+			t.Skip("no complete+partial pair kernel on this platform")
+		}
+
+		// The complete leaf's CV must match the x1 path.
+		var ref sponge
+		leafStateX1(complete, &ref)
+		var want [32]byte
+		ref.squeeze(want[:])
+		if cv != want {
+			t.Errorf("headLen=%d: complete CV got %x, want %x", headLen, cv, want)
+		}
+
+		// Finishing the exported partial state must match a direct sponge over
+		// head || suffix.
+		s.absorb(head[nShared*rate:])
+		s.absorb(suffix)
+		s.padPermute(leafDS)
+		var direct sponge
+		direct.absorb(head)
+		direct.absorb(suffix)
+		direct.padPermute(leafDS)
+		if s != direct {
+			t.Errorf("headLen=%d: partial leaf state diverges from direct absorption", headLen)
+		}
+	}
+}
+
+// TestPartialLeafFusionSizes cross-checks Write/Read against the RFC 9861
+// reference for shapes whose finalization strands one or three complete leaves
+// plus a ragged partial leaf — the partial-leaf fusion cases — and their
+// boundary neighbors.
+func TestPartialLeafFusionSizes(t *testing.T) {
+	for _, custom := range [][]byte{nil, []byte("domain")} {
+		for _, size := range []int{
+			3*BlockSize + 1, 3*BlockSize + BlockSize/2, 4*BlockSize - 1, 4 * BlockSize,
+			4*BlockSize + BlockSize/2, 5*BlockSize + BlockSize/2,
+			7*BlockSize + BlockSize/2, 8 * BlockSize, 8*BlockSize + 1,
+		} {
+			msg := ptn(size)
+			for _, chunk := range []int{size, BlockSize, BlockSize - 1} {
+				h := New(custom)
+				for off := 0; off < len(msg); off += chunk {
+					_, _ = h.Write(msg[off:min(off+chunk, len(msg))])
+				}
+				got := make([]byte, 32)
+				_, _ = h.Read(got)
+				if want := referenceKT128(msg, custom, 32); !bytes.Equal(got, want) {
+					t.Errorf("size=%d chunk=%d custom=%q: got %x, want %x", size, chunk, custom, got, want)
+				}
+			}
+		}
+	}
+}
+
 // TestProcessS0Leaves checks the fused S_0+leaves kernel against the x1 paths
 // for every chunk count: the final-node state must match absorbing
 // S_0 || kt12 marker into a fresh sponge, and each chain value must match the

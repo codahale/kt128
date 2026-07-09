@@ -51,6 +51,12 @@ const hasLeafBatch5 = false
 
 func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
 
+// hasPartialLeafFuse reports that amd64 has no complete+partial pair kernel;
+// finalization drains the trailing leaves serially.
+const hasPartialLeafFuse = false
+
+func processLeafPairPartialArch(_, _ []byte, _ int, _ *[32]byte, _ *sponge) bool { return false }
+
 //go:noescape
 func processS0LeavesAVX512(input *byte, state *uint64, cvs *byte, n uint64)
 

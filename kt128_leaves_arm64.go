@@ -32,6 +32,23 @@ func processLeavesPairARM64(input *byte, cvs *byte)
 //go:noescape
 func processS0LeafPairARM64(input *byte, state *uint64, cv *byte)
 
+//go:noescape
+func processLeafPairPartialARM64(in0, in1 *byte, nShared uint64, cv *byte, lane1 *uint64)
+
+// hasPartialLeafFuse reports that finalization can pair a stranded complete
+// leaf with the trailing partial leaf's whole rate-blocks in one 2-wide pass.
+const hasPartialLeafFuse = true
+
+// processLeafPairPartialArch computes the complete leaf's CV while absorbing
+// the partial leaf head's nShared whole rate-blocks into partial's state in
+// the same permutations; the caller finishes the partial leaf's ragged tail
+// and padding through the sponge. complete must be BlockSize bytes and
+// nShared must be len(head)/rate.
+func processLeafPairPartialArch(complete, head []byte, nShared int, cv *[32]byte, partial *sponge) bool {
+	processLeafPairPartialARM64(unsafe.SliceData(complete), unsafe.SliceData(head), uint64(nShared), &cv[0], &partial.a[0])
+	return true
+}
+
 func processLeavesArch(input []byte, cvs *[256]byte) bool {
 	processLeavesARM64(unsafe.SliceData(input), &cvs[0])
 	return true

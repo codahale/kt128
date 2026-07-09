@@ -741,6 +741,7 @@ var sizes = []size{
 	{"8KiB", 8 * 1024},
 	{"8KiB+1B", BlockSize + 1},
 	{"16KiB", 16 * 1024},
+	{"28KiB", 7 * BlockSize / 2},
 	{"32KiB", 32 * 1024},
 	{"64KiB", 64 * 1024},
 	{"72KiB", 9 * BlockSize},

@@ -339,19 +339,51 @@ func (h *Hasher) absorbMessage(suffix []byte) {
 	buf := h.buf
 
 	// Tree mode: process buf || suffix as leaves S_1, S_2, ... plus terminator.
-	// Complete leaves lying entirely within buf use the SIMD batch path directly.
-	if nFull := len(buf) / BlockSize; nFull > 0 {
-		h.processLeafBatch(buf[:nFull*BlockSize], nFull)
-		buf = buf[nFull*BlockSize:]
+	// Complete leaves lying entirely within buf use the SIMD batch path
+	// directly; head holds the trailing < BlockSize message bytes, so the
+	// remaining logical data after them is head || suffix.
+	nFull := len(buf) / BlockSize
+	head := buf[nFull*BlockSize:]
+
+	// Partial-leaf fusion: one or three buffered complete leaves strand a
+	// serial x1 pass in the batch (every other count drains through the batch
+	// and pair kernels). When the remaining data forms a single partial leaf,
+	// pair the stranded complete leaf with the partial leaf's whole
+	// rate-blocks in one 2-wide pass instead.
+	if hasPartialLeafFuse && (nFull == 1 || nFull == 3) && len(head)+len(suffix) < BlockSize {
+		if nFull == 3 {
+			h.processLeafBatch(buf[:2*BlockSize], 2)
+		}
+		h.fuseTrailingLeafPair(buf[(nFull-1)*BlockSize:nFull*BlockSize], head, suffix)
+	} else {
+		if nFull > 0 {
+			h.processLeafBatch(buf[:nFull*BlockSize], nFull)
+		}
+		h.absorbTailLeaves(head, suffix)
 	}
-	// buf now holds the trailing < BlockSize message bytes; the remaining logical
-	// data is buf || suffix.
-	h.absorbTailLeaves(buf, suffix)
 
 	// Terminator: LengthEncode(leafCount) || 0xFF || 0xFF.
 	var leBuf [9]byte
 	h.final.absorb(lengthEncode(leBuf[:0], h.leafCount))
 	h.final.absorb(treeTerminator[:])
+}
+
+// fuseTrailingLeafPair processes the final complete leaf and the trailing
+// partial leaf head || suffix together: the complete leaf and the partial
+// leaf's whole rate-blocks share one 2-wide kernel pass, and the partial
+// leaf's ragged tail and padding finish in Go from the kernel-exported state.
+// head and suffix together must be less than BlockSize bytes.
+func (h *Hasher) fuseTrailingLeafPair(complete, head, suffix []byte) {
+	nShared := len(head) / rate
+	var cv [32]byte
+	var s sponge
+	processLeafPairPartialArch(complete, head, nShared, &cv, &s)
+	h.final.absorbCVs(cv[:])
+	s.absorb(head[nShared*rate:])
+	s.absorb(suffix)
+	s.padPermute(leafDS)
+	h.final.absorbCV(&s)
+	h.leafCount += 2
 }
 
 // absorbTailLeaves processes the final leaves of the logical stream head || tail,

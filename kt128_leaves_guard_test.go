@@ -188,6 +188,20 @@ func runLeafKernels(t *testing.T) {
 		}
 	}
 
+	// Complete+partial pair kernel (arm64): reads exactly BlockSize bytes from
+	// the complete leaf and nShared whole rate-blocks from the head.
+	var probeCV [32]byte
+	var probeSponge sponge
+	if processLeafPairPartialArch(make([]byte, BlockSize), nil, 0, &probeCV, &probeSponge) {
+		const headLen = 25 * rate
+		buf := guardedBuffer(t, BlockSize+headLen)
+		var cv [32]byte
+		var s sponge
+		expectNoFault(t, "processLeafPairPartial", func() {
+			processLeafPairPartialArch(buf[:BlockSize], buf[BlockSize:], headLen/rate, &cv, &s)
+		})
+	}
+
 	// Scalar fused absorb loop: reads exactly n bytes from its pointer.
 	const stripes = 48
 	var s sponge
