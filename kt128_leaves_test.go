@@ -57,6 +57,22 @@ func BenchmarkProcessLeaves(b *testing.B) {
 	}
 }
 
+// checkLeafCVs verifies each 32-byte chain value in cvs against the x1 leaf
+// path for the corresponding chunk of input. prefix labels failures in tests
+// that loop over shapes.
+func checkLeafCVs(t *testing.T, prefix string, input, cvs []byte, n int) {
+	t.Helper()
+	for inst := range n {
+		var s sponge
+		leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
+		var want [32]byte
+		s.squeeze(want[:])
+		if !bytes.Equal(cvs[inst*32:inst*32+32], want[:]) {
+			t.Errorf("%sinstance %d: CV got %x, want %x", prefix, inst, cvs[inst*32:inst*32+32], want[:])
+		}
+	}
+}
+
 // TestProcessLeavesPair checks the 2-wide pair kernel against the x1 leaf path.
 func TestProcessLeavesPair(t *testing.T) {
 	input := make([]byte, 2*BlockSize)
@@ -69,15 +85,7 @@ func TestProcessLeavesPair(t *testing.T) {
 		t.Skip("no pair kernel on this platform")
 	}
 
-	for inst := range 2 {
-		var s sponge
-		leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
-		var want [256]byte
-		s.squeeze(want[:32])
-		if !bytes.Equal(got[inst*32:inst*32+32], want[:32]) {
-			t.Errorf("instance %d: got %x, want %x", inst, got[inst*32:inst*32+32], want[:32])
-		}
-	}
+	checkLeafCVs(t, "", input, got[:], 2)
 }
 
 // TestProcessLeavesBatch5 checks the hybrid scalar/NEON 5-leaf kernel against
@@ -94,15 +102,7 @@ func TestProcessLeavesBatch5(t *testing.T) {
 		t.Skip("no batch5 kernel on this platform")
 	}
 
-	for inst := range 5 {
-		var s sponge
-		leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
-		var want [32]byte
-		s.squeeze(want[:])
-		if !bytes.Equal(got[inst*32:inst*32+32], want[:]) {
-			t.Errorf("instance %d: got %x, want %x", inst, got[inst*32:inst*32+32], want[:])
-		}
-	}
+	checkLeafCVs(t, "", input, got[:], 5)
 }
 
 func BenchmarkProcessLeavesBatch5(b *testing.B) {
@@ -143,15 +143,7 @@ func TestProcessLeavesTail(t *testing.T) {
 			ran = true
 
 			// Each complete leaf's CV must match the x1 path.
-			for inst := range n {
-				var ref sponge
-				leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &ref)
-				var want [32]byte
-				ref.squeeze(want[:])
-				if !bytes.Equal(cvs[inst*32:inst*32+32], want[:]) {
-					t.Errorf("n=%d headLen=%d: CV %d got %x, want %x", n, headLen, inst, cvs[inst*32:inst*32+32], want[:])
-				}
-			}
+			checkLeafCVs(t, fmt.Sprintf("n=%d headLen=%d: ", n, headLen), input, cvs[:], n)
 
 			// Finishing the exported partial state must match a direct sponge
 			// over head || suffix.
@@ -234,15 +226,7 @@ func TestProcessS0Leaves(t *testing.T) {
 				n, final.a, final.pos, wantFinal.a, wantFinal.pos)
 		}
 
-		for leaf := 1; leaf < n; leaf++ {
-			var s sponge
-			leafStateX1(input[leaf*BlockSize:(leaf+1)*BlockSize], &s)
-			var want [32]byte
-			s.squeeze(want[:])
-			if !bytes.Equal(cvs[leaf*32:leaf*32+32], want[:]) {
-				t.Errorf("n=%d leaf %d: CV got %x, want %x", n, leaf, cvs[leaf*32:leaf*32+32], want[:])
-			}
-		}
+		checkLeafCVs(t, fmt.Sprintf("n=%d: ", n), input[BlockSize:], cvs[32:], n-1)
 	}
 	if !ran {
 		t.Skip("no fused S0+leaves kernel on this platform")
@@ -263,15 +247,7 @@ func TestProcessLeavesRun(t *testing.T) {
 			t.Skipf("no run kernel on this platform")
 		}
 
-		for inst := range n {
-			var s sponge
-			leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
-			var want [256]byte
-			s.squeeze(want[:32])
-			if !bytes.Equal(got[inst*32:inst*32+32], want[:32]) {
-				t.Errorf("n=%d instance %d: got %x, want %x", n, inst, got[inst*32:inst*32+32], want[:32])
-			}
-		}
+		checkLeafCVs(t, fmt.Sprintf("n=%d: ", n), input, got[:], n)
 	}
 }
 

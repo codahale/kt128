@@ -28,15 +28,7 @@ func TestProcessLeavesRunAVX2(t *testing.T) {
 		if !processLeavesRunArch(input, n, &got) {
 			t.Fatalf("AVX2 run kernel reported unavailable")
 		}
-		for inst := range n {
-			var s sponge
-			leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
-			var want [256]byte
-			s.squeeze(want[:32])
-			if !bytes.Equal(got[inst*32:inst*32+32], want[:32]) {
-				t.Errorf("n=%d instance %d: got %x, want %x", n, inst, got[inst*32:inst*32+32], want[:32])
-			}
-		}
+		checkLeafCVs(t, fmt.Sprintf("n=%d: ", n), input, got[:], n)
 	}
 }
 
@@ -52,15 +44,7 @@ func TestProcessLeavesPairAVX512(t *testing.T) {
 	}
 	var got [256]byte
 	processLeavesPairAVX512(&input[0], &got[0])
-	for inst := range 2 {
-		var s sponge
-		leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
-		var want [256]byte
-		s.squeeze(want[:32])
-		if !bytes.Equal(got[inst*32:inst*32+32], want[:32]) {
-			t.Errorf("instance %d: got %x, want %x", inst, got[inst*32:inst*32+32], want[:32])
-		}
-	}
+	checkLeafCVs(t, "", input, got[:], 2)
 }
 
 // BenchmarkPairVsRun compares the narrow XMM pair kernel against the masked
