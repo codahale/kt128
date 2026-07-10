@@ -555,6 +555,183 @@ s0leaves_avx512_loop:
 	RET
 
 
+// func processS0LeavesTailAVX512(input *byte, state *uint64, cvs *byte, n, nShared uint64, tail *uint64)
+//
+// Tail-lane variant of processS0LeavesAVX512: fuses S_0 (lane 0), n-1
+// complete leaves (lanes 1..n-1), and the trailing partial leaf (lane n),
+// which participates for its nShared whole 168-byte stripes starting at
+// input+n*8192. After those stripes lane n's 25-lane state is written to
+// tail for the Go caller to continue (more absorption, or the ragged end
+// and padding), the lane is re-clamped to chunk 0 as a dummy, and the
+// remaining stripes and last block proceed as in processS0LeavesAVX512:
+// the marker word for lane 0, DS and pad10*1 for the leaf lanes, the
+// final-node state extracted to state before the closing permutation.
+// Leaf CVs land in cvs slots 1..n-1; slot 0 and dummy slots hold garbage.
+//
+// Reads exactly n*8192 chunk bytes and nShared*168 tail bytes. n must be
+// in [2, 7] (lane n must be free) and nShared in [0, 48].
+TEXT ·processS0LeavesTailAVX512(SB), $64-48
+	MOVQ	input+0(FP), BX
+	MOVQ	state+8(FP), SI
+	MOVQ	cvs+16(FP), DI
+	MOVQ	n+24(FP), AX
+	MOVQ	nShared+32(FP), R13
+	MOVQ	tail+40(FP), R8
+
+	// Build the gather index vector at SP+0 with n+1 active lanes:
+	// lane i = (i <= n) ? i*8192 : 0. Lane 0 is S_0, lane n the partial;
+	// lanes past it fall back to chunk 0 (in-bounds, discarded).
+	MOVQ	$0, 0(SP)
+	MOVQ	$8192, R10;  XORQ R9, R9; CMPQ AX, $1; CMOVQGE R10, R9; MOVQ R9, 8(SP)
+	MOVQ	$16384, R10; XORQ R9, R9; CMPQ AX, $2; CMOVQGE R10, R9; MOVQ R9, 16(SP)
+	MOVQ	$24576, R10; XORQ R9, R9; CMPQ AX, $3; CMOVQGE R10, R9; MOVQ R9, 24(SP)
+	MOVQ	$32768, R10; XORQ R9, R9; CMPQ AX, $4; CMOVQGE R10, R9; MOVQ R9, 32(SP)
+	MOVQ	$40960, R10; XORQ R9, R9; CMPQ AX, $5; CMOVQGE R10, R9; MOVQ R9, 40(SP)
+	MOVQ	$49152, R10; XORQ R9, R9; CMPQ AX, $6; CMOVQGE R10, R9; MOVQ R9, 48(SP)
+	MOVQ	$57344, R10; XORQ R9, R9; CMPQ AX, $7; CMOVQGE R10, R9; MOVQ R9, 56(SP)
+
+	// Zero state Z0-Z24.
+	ZERO_STATE_X8
+
+	MOVQ	$48, R12
+	SUBQ	R13, R12	// stripes remaining after the shared pass
+
+	TESTQ	R13, R13
+	JZ	s0tail_export
+
+s0tail_shared_loop:
+	GATHER_STRIPE21
+
+	PERMUTE12_X8
+
+	ADDQ	$168, BX
+	SUBQ	$1, R13
+	JNZ	s0tail_shared_loop
+
+s0tail_export:
+	// Export the tail lane's state (qword n of Z0-Z24) for the Go caller;
+	// the remaining stripes only affect S_0 and the complete lanes.
+	MOVQ	AX, CX
+	MOVL	$1, R9
+	SHLL	CX, R9
+	KMOVB	R9, K2
+	VPCOMPRESSQ	Z0, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 0(R8)
+	VPCOMPRESSQ	Z1, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 8(R8)
+	VPCOMPRESSQ	Z2, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 16(R8)
+	VPCOMPRESSQ	Z3, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 24(R8)
+	VPCOMPRESSQ	Z4, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 32(R8)
+	VPCOMPRESSQ	Z5, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 40(R8)
+	VPCOMPRESSQ	Z6, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 48(R8)
+	VPCOMPRESSQ	Z7, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 56(R8)
+	VPCOMPRESSQ	Z8, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 64(R8)
+	VPCOMPRESSQ	Z9, K2, Z25;  VMOVQ X25, R9; MOVQ R9, 72(R8)
+	VPCOMPRESSQ	Z10, K2, Z25; VMOVQ X25, R9; MOVQ R9, 80(R8)
+	VPCOMPRESSQ	Z11, K2, Z25; VMOVQ X25, R9; MOVQ R9, 88(R8)
+	VPCOMPRESSQ	Z12, K2, Z25; VMOVQ X25, R9; MOVQ R9, 96(R8)
+	VPCOMPRESSQ	Z13, K2, Z25; VMOVQ X25, R9; MOVQ R9, 104(R8)
+	VPCOMPRESSQ	Z14, K2, Z25; VMOVQ X25, R9; MOVQ R9, 112(R8)
+	VPCOMPRESSQ	Z15, K2, Z25; VMOVQ X25, R9; MOVQ R9, 120(R8)
+	VPCOMPRESSQ	Z16, K2, Z25; VMOVQ X25, R9; MOVQ R9, 128(R8)
+	VPCOMPRESSQ	Z17, K2, Z25; VMOVQ X25, R9; MOVQ R9, 136(R8)
+	VPCOMPRESSQ	Z18, K2, Z25; VMOVQ X25, R9; MOVQ R9, 144(R8)
+	VPCOMPRESSQ	Z19, K2, Z25; VMOVQ X25, R9; MOVQ R9, 152(R8)
+	VPCOMPRESSQ	Z20, K2, Z25; VMOVQ X25, R9; MOVQ R9, 160(R8)
+	VPCOMPRESSQ	Z21, K2, Z25; VMOVQ X25, R9; MOVQ R9, 168(R8)
+	VPCOMPRESSQ	Z22, K2, Z25; VMOVQ X25, R9; MOVQ R9, 176(R8)
+	VPCOMPRESSQ	Z23, K2, Z25; VMOVQ X25, R9; MOVQ R9, 184(R8)
+	VPCOMPRESSQ	Z24, K2, Z25; VMOVQ X25, R9; MOVQ R9, 192(R8)
+
+	// Re-clamp the tail lane to chunk 0: it is dead from here on but must
+	// keep gathering in-bounds memory.
+	MOVQ	$0, 0(SP)(AX*8)
+
+	TESTQ	R12, R12
+	JZ	s0tail_final
+
+s0tail_rest_loop:
+	GATHER_STRIPE21
+
+	PERMUTE12_X8
+
+	ADDQ	$168, BX
+	SUBQ	$1, R12
+	JNZ	s0tail_rest_loop
+
+s0tail_final:
+	// Absorb final 16 lanes (128-byte remainder).
+	GATHER_FINAL16
+
+	// Lane 16: DS 0x0B for the leaves, then fix lane 0 to the kt12 marker
+	// word 0x03 by XORing 0x0B^0x03 = 0x08 into element 0 only.
+	VPBROADCASTQ_IMM_0x0B(Z25)
+	VPXORQ	Z25, Z16, Z16
+	MOVQ	$0x08, AX
+	VMOVQ	AX, X26
+	VPXORQ	Z26, Z16, Z16
+
+	// Lane 20: pad10*1 end 0x80 for the leaves, then cancel it in lane 0.
+	VPBROADCASTQ_IMM_0x80_HIGH(Z25)
+	VPXORQ	Z25, Z20, Z20
+	MOVQ	$0x8000000000000000, AX
+	VMOVQ	AX, X26
+	VPXORQ	Z26, Z20, Z20
+
+	// Extract the final-node state (element 0 of each lane) before the leaves'
+	// closing permutation scrambles it.
+	VMOVQ	X0, 0(SI)
+	VMOVQ	X1, 8(SI)
+	VMOVQ	X2, 16(SI)
+	VMOVQ	X3, 24(SI)
+	VMOVQ	X4, 32(SI)
+	VMOVQ	X5, 40(SI)
+	VMOVQ	X6, 48(SI)
+	VMOVQ	X7, 56(SI)
+	VMOVQ	X8, 64(SI)
+	VMOVQ	X9, 72(SI)
+	VMOVQ	X10, 80(SI)
+	VMOVQ	X11, 88(SI)
+	VMOVQ	X12, 96(SI)
+	VMOVQ	X13, 104(SI)
+	VMOVQ	X14, 112(SI)
+	VMOVQ	X15, 120(SI)
+	VMOVQ	X16, 128(SI)
+	VMOVQ	X17, 136(SI)
+	VMOVQ	X18, 144(SI)
+	VMOVQ	X19, 152(SI)
+	VMOVQ	X20, 160(SI)
+	VMOVQ	X21, 168(SI)
+	VMOVQ	X22, 176(SI)
+	VMOVQ	X23, 184(SI)
+	VMOVQ	X24, 192(SI)
+
+	// Closing permutation for the leaf lanes (lane 0 becomes garbage).
+	PERMUTE12_X8
+
+	// Extract CVs via VPSCATTERQQ. All 8 lanes are scattered into the 256-byte
+	// cvs buffer; the caller reads only slots 1..n-1.
+	MOVQ	$0, 0(SP)
+	MOVQ	$32, 8(SP)
+	MOVQ	$64, 16(SP)
+	MOVQ	$96, 24(SP)
+	MOVQ	$128, 32(SP)
+	MOVQ	$160, 40(SP)
+	MOVQ	$192, 48(SP)
+	MOVQ	$224, 56(SP)
+	VMOVDQU64	0(SP), Z28
+
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z0, K1, 0(DI)(Z28*1)
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z1, K1, 8(DI)(Z28*1)
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z2, K1, 16(DI)(Z28*1)
+	KXNORB	K1, K1, K1
+	VPSCATTERQQ	Z3, K1, 24(DI)(Z28*1)
+
+	VZEROUPPER
+	RET
+
+
 // ABSORB_LANE_X4 XORs lane i from 4 input pointers into the state buffer.
 // AX=in0, CX=in1, DX=in2, BX=in3, R8=state buffer.
 #define ABSORB_LANE_X4(i) \

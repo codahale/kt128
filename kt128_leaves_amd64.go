@@ -159,6 +159,9 @@ func processLeafPairPartialAVX512(in0, in1 *byte, nShared uint64, cv *byte, lane
 func processS0LeavesAVX512(input *byte, state *uint64, cvs *byte, n uint64)
 
 //go:noescape
+func processS0LeavesTailAVX512(input *byte, state *uint64, cvs *byte, n, nShared uint64, tail *uint64)
+
+//go:noescape
 func processS0LeavesQuadAVX2(input *byte, state *uint64, cvs *byte, n uint64)
 
 //go:noescape
@@ -241,6 +244,51 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 	final.pos = BlockSize%rate + len(kt12Marker) // mid-block after S_0 || marker
 	return true
 }
+
+// processS0LeavesTailArch fuses processS0LeavesArch with the trailing partial
+// leaf: one masked 8-wide pass computes the final node's S_0 || marker state
+// (lane 0), n-1 leaf CVs (cvs[32:n*32]), and absorbs the partial leaf's
+// nShared whole rate-blocks — read from input[n*BlockSize:] — into lane n,
+// whose mid-absorption state lands in pending for the caller to continue.
+// input must be at least n*BlockSize + nShared*rate contiguous bytes and
+// final a zero sponge. AVX-512 only; n must be in 2..7 so lane n is free.
+func processS0LeavesTailArch(input []byte, n, nShared int, final, pending *sponge, cvs *[256]byte) bool {
+	if !cpuid.HasAVX512 || n < 2 || n > 7 {
+		return false
+	}
+	processS0LeavesTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
+	final.pos = BlockSize%rate + len(kt12Marker) // mid-block after S_0 || marker
+	pending.pos = 0                              // whole rate-blocks absorbed
+	return true
+}
+
+// fuseS0TailBlocks returns how many whole rate-blocks of a first write's
+// trailing partial chunk should ride the fused S_0 pass in an otherwise-idle
+// lane, or 0 to leave the tail for finalization. The caller must be fusing
+// every complete chunk (the partial's data directly follows them). On
+// AVX-512 with 2..7 chunks the pass has a free lane and its masked cost is
+// flat, so the tail's blocks ride free — except at exactly two chunks, where
+// S_0 fusion otherwise takes a cheaper 2-wide XMM pair: the flat masked pass
+// pays off only once the tail is big enough that the serial pass it replaces
+// costs more than the pair saves (measured breakeven near half a chunk,
+// Emerald Rapids).
+func fuseS0TailBlocks(chunks, tail int) int {
+	if !cpuid.HasAVX512 || chunks < 2 || chunks > 7 {
+		return 0
+	}
+	n := tail / rate
+	if chunks == 2 && n < s0TailPairMin {
+		return 0
+	}
+	return n
+}
+
+// s0TailPairMin is the tail size, in whole rate-blocks, at which a two-chunk
+// first write switches from the 2-wide XMM S_0 pair (plus a serial tail at
+// finalization) to the flat masked pass with the tail riding a third lane:
+// the pair path costs ~7.1µs plus ~135ns per serial tail block and the
+// masked pass a flat ~9.8µs (measured Emerald Rapids), crossing at 27.
+const s0TailPairMin = 27
 
 // processLeavesTailArch computes n trailing complete leaf CVs while
 // absorbing the following partial leaf's nShared whole rate-blocks into

@@ -31,13 +31,15 @@ const (
 
 // Hasher is an incremental KT128 instance.
 type Hasher struct {
-	buf       []byte // buffered leaf data (tree mode only)
-	c         []byte // owned copy of the customization string
-	final     sponge // final-node sponge state
-	pos       uint64 // total bytes written via Write
-	leafCount uint64 // total leaf CVs written to final so far
-	state     uint8  // lifecycle: stateSingle -> stateTree -> stateFinalized
-	ds        byte   // KT128 customization byte for finalization (singleDS or treeDS)
+	buf        []byte // buffered leaf data (tree mode only)
+	c          []byte // owned copy of the customization string
+	final      sponge // final-node sponge state
+	pending    sponge // partially-absorbed trailing leaf from a fused first write
+	pos        uint64 // total bytes written via Write
+	leafCount  uint64 // total leaf CVs written to final so far
+	pendingLen int    // bytes absorbed into pending; 0 = no pending leaf
+	state      uint8  // lifecycle: stateSingle -> stateTree -> stateFinalized
+	ds         byte   // KT128 customization byte for finalization (singleDS or treeDS)
 }
 
 // New returns a new Hasher with the given customization string. The Hasher
@@ -71,14 +73,22 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		// Fused fast path: with S_0 and at least one full leaf contiguous in
 		// p and nothing absorbed yet, process them together in one fused
 		// kernel pass. Each arch decides how many chunks to take (and when
-		// fusion would strand leaves in the buffer) via fuseS0Chunks.
-		nFuse := 0
+		// fusion would strand leaves in the buffer) via fuseS0Chunks. When
+		// the pass consumes every complete chunk, the trailing partial
+		// chunk's whole rate-blocks may ride an idle lane (fuseS0TailBlocks),
+		// leaving a pending partially-absorbed leaf.
+		nFuse, nTail := 0, 0
 		if h.pos == 0 {
-			nFuse = fuseS0Chunks(len(p)/BlockSize, len(p)%BlockSize)
+			chunks, tail := len(p)/BlockSize, len(p)%BlockSize
+			nFuse = fuseS0Chunks(chunks, tail)
+			if nFuse == chunks {
+				nTail = fuseS0TailBlocks(chunks, tail)
+			}
 		}
-		if nFuse >= 2 && h.startTreeModeFused(p, nFuse) {
-			// The rest of p is ordinary leaf data.
-			p = p[nFuse*BlockSize:]
+		if nFuse >= 2 && h.startTreeModeFused(p, nFuse, nTail) {
+			// The rest of p is ordinary leaf data — or, with a pending
+			// leaf, its ragged remnant, buffered by extendPending below.
+			p = p[nFuse*BlockSize+h.pendingLen:]
 		} else {
 			// Single-node finalization and tree-mode S_0 absorb the first
 			// chunk into the final node identically, so message bytes are
@@ -97,6 +107,13 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	}
 
 	h.pos += uint64(n)
+
+	// A pending trailing leaf holds the stream position: p continues it.
+	if h.pendingLen > 0 {
+		if p = h.extendPending(p); len(p) == 0 {
+			return n, nil
+		}
+	}
 
 	lanes := streamChunks
 	flush := flushChunks()
@@ -274,13 +291,15 @@ func (h *Hasher) finalize() {
 // Clone returns an independent copy of the Hasher. The original and clone evolve independently.
 func (h *Hasher) Clone() *Hasher {
 	return &Hasher{
-		buf:       slices.Clone(h.buf),
-		c:         h.c,
-		final:     h.final,
-		pos:       h.pos,
-		leafCount: h.leafCount,
-		ds:        h.ds,
-		state:     h.state,
+		buf:        slices.Clone(h.buf),
+		c:          h.c,
+		final:      h.final,
+		pending:    h.pending,
+		pos:        h.pos,
+		leafCount:  h.leafCount,
+		pendingLen: h.pendingLen,
+		ds:         h.ds,
+		state:      h.state,
 	}
 }
 
@@ -293,6 +312,7 @@ func (h *Hasher) Reset() {
 	h.pos = 0
 	h.ds = 0
 	h.leafCount = 0
+	h.pendingLen = 0 // pending's contents are fully overwritten before reuse
 	h.state = stateSingle
 }
 
@@ -321,10 +341,18 @@ func (h *Hasher) startTreeMode() {
 // startTreeModeFused enters tree mode by computing the final node's
 // S_0 || marker state and the first n-1 leaves' chain values together in one
 // fused kernel pass, where a kernel exists. It requires an untouched Hasher
-// and n full chunks contiguous in p, and consumes p[:n*BlockSize].
-func (h *Hasher) startTreeModeFused(p []byte, n int) bool {
+// and n full chunks contiguous in p, and consumes p[:n*BlockSize]. With
+// tailBlocks > 0 the pass also absorbs the trailing partial chunk's first
+// tailBlocks whole rate-blocks — p must extend that far — into a pending
+// leaf state, consuming those bytes too (recorded in h.pendingLen).
+func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 	var cvs [256]byte
-	if !processS0LeavesArch(p[:n*BlockSize], n, &h.final, &cvs) {
+	if tailBlocks > 0 {
+		if !processS0LeavesTailArch(p, n, tailBlocks, &h.final, &h.pending, &cvs) {
+			return false
+		}
+		h.pendingLen = tailBlocks * rate
+	} else if !processS0LeavesArch(p[:n*BlockSize], n, &h.final, &cvs) {
 		return false
 	}
 	h.ds = treeDS
@@ -332,6 +360,29 @@ func (h *Hasher) startTreeModeFused(p []byte, n int) bool {
 	h.final.absorbCVs(cvs[32 : n*32])
 	h.leafCount += uint64(n - 1)
 	return true
+}
+
+// extendPending continues the partially-absorbed trailing leaf left by a
+// fused first write. A later write means it is no longer necessarily the
+// trailing leaf: if p completes it, it is finished serially — the buffered
+// ragged remnant first, then bytes from p — and its chain value absorbed,
+// restoring the invariant that the leaf buffer starts at a leaf boundary.
+// Returns the unconsumed rest of p; if the leaf remains incomplete, p is
+// buffered as more of its remnant and the result is empty.
+func (h *Hasher) extendPending(p []byte) []byte {
+	room := BlockSize - h.pendingLen - len(h.buf)
+	if len(p) < room {
+		h.bufferTail(p)
+		return nil
+	}
+	h.pending.absorb(h.buf)
+	h.pending.absorb(p[:room])
+	h.pending.padPermute(leafDS)
+	h.final.absorbCV(&h.pending)
+	h.leafCount++
+	h.pendingLen = 0
+	h.buf = h.buf[:0]
+	return p[room:]
 }
 
 // absorbMessage absorbs the rest of the logical message into h.final, setting
@@ -359,27 +410,49 @@ func (h *Hasher) absorbMessage(suffix []byte) {
 
 	buf := h.buf
 
-	// Tree mode: process buf || suffix as leaves S_1, S_2, ... plus terminator.
-	// Complete leaves lying entirely within buf use the SIMD batch path
-	// directly; head holds the trailing < BlockSize message bytes, so the
-	// remaining logical data after them is head || suffix.
-	nFull := len(buf) / BlockSize
-	head := buf[nFull*BlockSize:]
-
-	// Partial-leaf fusion: when the remaining data forms a single partial
-	// leaf, fold an arch-chosen count of trailing complete leaves and the
-	// partial leaf's whole rate-blocks into one kernel pass; leading leaves
-	// take the batch path.
-	if n := fuseTailChunks(nFull, len(head)/rate); n > 0 && len(head)+len(suffix) < BlockSize {
-		if lead := nFull - n; lead > 0 {
-			h.processLeafBatch(buf[:lead*BlockSize], lead)
+	// A pending trailing leaf from a fused first write: the remaining
+	// logical data is its ragged remnant (all of buf) followed by the
+	// suffix, absorbed straight into the exported leaf state.
+	if h.pendingLen > 0 {
+		h.pending.absorb(buf)
+		room := BlockSize - h.pendingLen - len(buf)
+		if len(suffix) > room {
+			// The suffix completes the pending leaf; its remainder forms
+			// the last leaves.
+			h.pending.absorb(suffix[:room])
+			h.pending.padPermute(leafDS)
+			h.final.absorbCV(&h.pending)
+			h.leafCount++
+			h.absorbContiguousLeaves(suffix[room:])
+		} else {
+			h.pending.absorb(suffix)
+			h.pending.padPermute(leafDS)
+			h.final.absorbCV(&h.pending)
+			h.leafCount++
 		}
-		h.fuseTrailingLeaves(buf[(nFull-n)*BlockSize:], n, head, suffix)
 	} else {
-		if nFull > 0 {
-			h.processLeafBatch(buf[:nFull*BlockSize], nFull)
+		// Tree mode: process buf || suffix as leaves S_1, S_2, ... plus terminator.
+		// Complete leaves lying entirely within buf use the SIMD batch path
+		// directly; head holds the trailing < BlockSize message bytes, so the
+		// remaining logical data after them is head || suffix.
+		nFull := len(buf) / BlockSize
+		head := buf[nFull*BlockSize:]
+
+		// Partial-leaf fusion: when the remaining data forms a single partial
+		// leaf, fold an arch-chosen count of trailing complete leaves and the
+		// partial leaf's whole rate-blocks into one kernel pass; leading leaves
+		// take the batch path.
+		if n := fuseTailChunks(nFull, len(head)/rate); n > 0 && len(head)+len(suffix) < BlockSize {
+			if lead := nFull - n; lead > 0 {
+				h.processLeafBatch(buf[:lead*BlockSize], lead)
+			}
+			h.fuseTrailingLeaves(buf[(nFull-n)*BlockSize:], n, head, suffix)
+		} else {
+			if nFull > 0 {
+				h.processLeafBatch(buf[:nFull*BlockSize], nFull)
+			}
+			h.absorbTailLeaves(head, suffix)
 		}
-		h.absorbTailLeaves(head, suffix)
 	}
 
 	// Terminator: LengthEncode(leafCount) || 0xFF || 0xFF.

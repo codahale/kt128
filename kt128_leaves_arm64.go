@@ -126,6 +126,14 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 	return true
 }
 
+// processS0LeavesTailArch reports that arm64 has no S_0+leaves+partial fused
+// kernel; the 2-wide S_0 pair is always full.
+func processS0LeavesTailArch(_ []byte, _, _ int, _, _ *sponge, _ *[256]byte) bool { return false }
+
+// fuseS0TailBlocks reports that no partial-chunk blocks ride the fused S_0
+// pass on arm64 (see processS0LeavesTailArch).
+func fuseS0TailBlocks(_, _ int) int { return 0 }
+
 // processLeavesTailArch computes the trailing complete leaf's CV while
 // absorbing the partial leaf head's nShared whole rate-blocks into partial's
 // state in the same 2-wide pass; the caller finishes the partial leaf's

@@ -179,6 +179,26 @@ func runLeafKernels(t *testing.T) {
 		})
 	}
 
+	// Fused S_0+leaves+partial kernel: reads exactly n contiguous chunks plus
+	// nShared whole rate-blocks of the trailing partial. The tail lane is
+	// re-clamped to a dummy after its blocks; a wrong clamp or an unclamped
+	// walk past the partial's blocks reads the guard.
+	for n := 2; n <= 7; n++ {
+		var probeFinal, probePending sponge
+		var probeCVs [256]byte
+		if !processS0LeavesTailArch(make([]byte, n*BlockSize), n, 0, &probeFinal, &probePending, &probeCVs) {
+			continue
+		}
+		for _, nShared := range []int{0, 24, 48} {
+			buf := guardedBuffer(t, n*BlockSize+nShared*rate)
+			var final, pending sponge
+			var cvsOut [256]byte
+			expectNoFault(t, fmt.Sprintf("processS0LeavesTail(n=%d,nShared=%d)", n, nShared), func() {
+				processS0LeavesTailArch(buf, n, nShared, &final, &pending, &cvsOut)
+			})
+		}
+	}
+
 	// Run/quad remainder kernels (amd64): the dummy lanes must stay within the
 	// n-chunk buffer. A clamping bug would read chunk n (past the guard).
 	if hasRun {

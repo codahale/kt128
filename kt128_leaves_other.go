@@ -49,4 +49,8 @@ func processLeavesRunArch(_ []byte, _ int, _ *[256]byte) bool { return false }
 
 func processS0LeavesArch(_ []byte, _ int, _ *sponge, _ *[256]byte) bool { return false }
 
+func processS0LeavesTailArch(_ []byte, _, _ int, _, _ *sponge, _ *[256]byte) bool { return false }
+
+func fuseS0TailBlocks(_, _ int) int { return 0 }
+
 func processLeavesTailArch(_ []byte, _, _ int, _ *[256]byte, _ *sponge) bool { return false }

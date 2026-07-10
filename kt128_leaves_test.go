@@ -182,6 +182,10 @@ func TestPartialLeafFusionSizes(t *testing.T) {
 			// Chunk counts of 1 mod 8, on both sides of the whole-rate-block
 			// tail threshold that decides amd64 S_0 fusion.
 			9*BlockSize + rate, 9*BlockSize + rate - 1, 17*BlockSize + 100,
+			// Ragged one-shots whose partial tail rides the fused S_0 pass
+			// (AVX-512), including both sides of the two-chunk threshold.
+			2*BlockSize + 26*rate, 2*BlockSize + 27*rate, 2*BlockSize + 8191,
+			3*BlockSize + rate, 6*BlockSize + 4096, 7*BlockSize + 8191,
 		} {
 			msg := ptn(size)
 			for _, chunk := range []int{size, BlockSize, BlockSize - 1} {
@@ -194,6 +198,40 @@ func TestPartialLeafFusionSizes(t *testing.T) {
 				if want := referenceKT128(msg, custom, 32); !bytes.Equal(got, want) {
 					t.Errorf("size=%d chunk=%d custom=%q: got %x, want %x", size, chunk, custom, got, want)
 				}
+			}
+		}
+	}
+}
+
+// TestWritePendingContinuation cross-checks writes that continue a fused
+// first write's pending partial leaf against the RFC 9861 reference: the
+// first write's shape triggers S_0+tail fusion (on platforms that have it),
+// and the continuation must be equivalent whether it leaves the pending leaf
+// incomplete, completes it exactly (or one byte around that boundary), or
+// runs past it into more leaves. A clone taken mid-pending must continue
+// identically.
+func TestWritePendingContinuation(t *testing.T) {
+	for _, first := range []int{2*BlockSize + 4096, 3*BlockSize + 4096, 3*BlockSize + 4200, 7*BlockSize + 8191} {
+		room := BlockSize - first%BlockSize
+		for _, cont := range []int{0, 1, 100, 4096, room - 1, room, room + 1, room + BlockSize, room + 9*BlockSize + 17} {
+			msg := ptn(first + cont)
+			want := referenceKT128(msg, nil, 32)
+
+			h := New(nil)
+			_, _ = h.Write(msg[:first])
+			clone := h.Clone()
+			_, _ = h.Write(msg[first:])
+			got := make([]byte, 32)
+			_, _ = h.Read(got)
+			if !bytes.Equal(got, want) {
+				t.Errorf("first=%d cont=%d: split writes diverge: got %x, want %x", first, cont, got, want)
+			}
+
+			_, _ = clone.Write(msg[first:])
+			cloned := make([]byte, 32)
+			_, _ = clone.Read(cloned)
+			if !bytes.Equal(cloned, want) {
+				t.Errorf("first=%d cont=%d: cloned continuation diverges: got %x, want %x", first, cont, cloned, want)
 			}
 		}
 	}
@@ -230,6 +268,59 @@ func TestProcessS0Leaves(t *testing.T) {
 	}
 	if !ran {
 		t.Skip("no fused S0+leaves kernel on this platform")
+	}
+}
+
+// TestProcessS0LeavesTail checks the fused S_0+leaves+partial kernel against
+// the serial paths across chunk counts and tail lengths spanning rate-block
+// boundaries: the final-node state must match absorbing S_0 || kt12 marker,
+// each complete leaf's CV must match the x1 path, and continuing the exported
+// partial state must match a direct sponge over the full tail.
+func TestProcessS0LeavesTail(t *testing.T) {
+	suffix := []byte{0xC3, 0x3C, 0x0F}
+	ran := false
+	for n := 2; n <= 7; n++ {
+		for _, tailLen := range []int{0, 1, 167, 168, 169, 4096, 8063, 8064, 8188} {
+			input := make([]byte, n*BlockSize+tailLen)
+			for i := range input {
+				input[i] = byte(i*19 + i>>7 + tailLen + n)
+			}
+			tail := input[n*BlockSize:]
+			nShared := tailLen / rate
+
+			var final, pending sponge
+			var cvs [256]byte
+			if !processS0LeavesTailArch(input, n, nShared, &final, &pending, &cvs) {
+				continue
+			}
+			ran = true
+
+			var wantFinal sponge
+			wantFinal.absorb(input[:BlockSize])
+			wantFinal.absorb(kt12Marker[:])
+			if final != wantFinal {
+				t.Errorf("n=%d tailLen=%d: final-node state:\n got %x pos=%d\nwant %x pos=%d",
+					n, tailLen, final.a, final.pos, wantFinal.a, wantFinal.pos)
+			}
+
+			checkLeafCVs(t, fmt.Sprintf("n=%d tailLen=%d: ", n, tailLen), input[BlockSize:], cvs[32:], n-1)
+
+			// Finishing the exported partial state must match a direct sponge
+			// over tail || suffix.
+			pending.absorb(tail[nShared*rate:])
+			pending.absorb(suffix)
+			pending.padPermute(leafDS)
+			var direct sponge
+			direct.absorb(tail)
+			direct.absorb(suffix)
+			direct.padPermute(leafDS)
+			if pending != direct {
+				t.Errorf("n=%d tailLen=%d: partial leaf state diverges from direct absorption", n, tailLen)
+			}
+		}
+	}
+	if !ran {
+		t.Skip("no fused S0+leaves+partial kernel on this platform")
 	}
 }
 
