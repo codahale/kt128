@@ -112,7 +112,7 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		if len(h.buf) > 0 {
 			if partial := len(h.buf) % BlockSize; partial != 0 {
 				need := BlockSize - partial
-				h.buf = append(h.buf, p[:need]...)
+				h.bufferTail(p[:need])
 				p = p[need:]
 			}
 			h.processLeafBatch(h.buf, len(h.buf)/BlockSize)
@@ -131,12 +131,12 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		}
 
 		// Buffer the tail.
-		h.buf = append(h.buf, p...)
+		h.bufferTail(p)
 		return n, nil
 	}
 
 	// Streaming path: accumulate in buf, flush in whole flush units.
-	h.buf = append(h.buf, p...)
+	h.bufferTail(p)
 	if processable := len(h.buf) / BlockSize; processable >= lanes {
 		nFlush := (processable / lanes) * lanes
 		h.processLeafBatch(h.buf[:nFlush*BlockSize], nFlush)
@@ -144,6 +144,27 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		h.buf = h.buf[:remaining]
 	}
 	return n, nil
+}
+
+// bufferTail appends p to the leaf buffer. The first fill keeps append's
+// exact sizing so one-shot tails stay small; any later growth jumps straight
+// to the streaming high-water mark — one whole flush unit plus the partial
+// chunk in progress — so steady-state streaming settles after a single
+// growth instead of re-copying the buffer through append's doubling steps.
+func (h *Hasher) bufferTail(p []byte) {
+	if need := len(h.buf) + len(p); cap(h.buf) != 0 && cap(h.buf) < need && need >= growJumpMin {
+		h.growBuf(need)
+	}
+	h.buf = append(h.buf, p...)
+}
+
+// growBuf reallocates the leaf buffer with capacity for the streaming
+// high-water mark (or need, if larger). Kept out of bufferTail so the no-grow
+// fast path stays within the inlining budget.
+func (h *Hasher) growBuf(need int) {
+	grown := make([]byte, len(h.buf), max(need, (streamChunks+1)*BlockSize))
+	copy(grown, h.buf)
+	h.buf = grown
 }
 
 // processLeafBatch computes leaf CVs for nLeaves complete chunks, draining

@@ -18,6 +18,11 @@ func flushChunks() int { return 1 }
 // batch kernel, so it is a single chunk.
 const streamChunks = availableLanes
 
+// growJumpMin is the buffered byte count at which a regrowing leaf buffer
+// jumps straight to the streaming high-water mark; with a single-chunk
+// flush unit the buffer never accumulates far, so any regrowth may jump.
+const growJumpMin = 0
+
 // hasLeafX8 reports that the scalar fallback has no batch kernel; the
 // generic 8-wide path is eight serial sponges, no faster than the x1 loop.
 const hasLeafX8 = false

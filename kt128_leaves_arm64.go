@@ -26,6 +26,13 @@ func flushChunks() int { return 2 }
 // (measured +11.5% at 64 KiB streaming) — and caps the buffer at one batch.
 const streamChunks = 5
 
+// growJumpMin is the buffered byte count at which a regrowing leaf buffer
+// jumps straight to the streaming high-water mark instead of letting append
+// re-copy through its doubling steps. On arm64 any regrowth jumps: the
+// 48 KiB high-water allocation is cheap here, and eager jumping measured
+// faster at every streaming size (up to -10% at 64 KiB, M4 Pro).
+const growJumpMin = 0
+
 // hasLeafX8 reports that arm64 has no dedicated x8 kernel; a remainder of
 // eight drains through the pair loop at the same cost.
 const hasLeafX8 = false

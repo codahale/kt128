@@ -36,6 +36,16 @@ func flushChunks() int {
 // kernel, so it is the SIMD width.
 const streamChunks = availableLanes
 
+// growJumpMin is the buffered byte count at which a regrowing leaf buffer
+// jumps straight to the streaming high-water mark instead of letting append
+// re-copy through its doubling steps. Jumping eagerly on any regrowth
+// measured -17% at 64 KiB streaming but +5..7% at 28-32 KiB (Emerald
+// Rapids): short streams never fill the 72 KiB high-water allocation and
+// only pay for zeroing it. Four chunks is past every shape that stops short
+// (a 32 KiB stream peaks at three buffered chunks) while keeping most of
+// the large-stream win (-4.7% at 64 KiB).
+const growJumpMin = 4 * BlockSize
+
 // hasLeafX8 reports that amd64 drains whole 8-leaf batches through a
 // dedicated 8-wide kernel.
 const hasLeafX8 = true

@@ -620,6 +620,36 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		}
 	})
 
+	t.Run("streaming buffer settles after one growth", func(t *testing.T) {
+		chunk := ptn(BlockSize)
+
+		// A fresh hasher's first flush cycle grows the buffer a bounded
+		// number of times — the initial exact-size fill, append-sized steps
+		// up to growJumpMin, and one jump to the streaming high-water mark —
+		// and later cycles reuse it without reallocating.
+		wantMax := 3.0 // hasher + first fill + one growth
+		if growJumpMin > 0 {
+			wantMax = 5.0 // plus append's growth steps below the jump threshold
+		}
+		allocs := testing.AllocsPerRun(3, func() {
+			h := New(nil)
+			for range 2*streamChunks + 2 {
+				_, _ = h.Write(chunk)
+			}
+		})
+		if allocs > wantMax {
+			t.Fatalf("streaming write cycle allocated %.0f times, want at most %.0f", allocs, wantMax)
+		}
+
+		h := New(nil)
+		for range 2*streamChunks + 2 {
+			_, _ = h.Write(chunk)
+		}
+		if maxCap := (streamChunks + 1) * BlockSize; cap(h.buf) > maxCap {
+			t.Fatalf("buffer capacity = %d, want at most %d", cap(h.buf), maxCap)
+		}
+	})
+
 	t.Run("flush exact lane batch", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(BlockSize + 1))
