@@ -67,10 +67,13 @@ func fuseS0Chunks(chunks, tail int) int {
 	}
 	// AVX2: the quad hosts S_0 plus up to three leaves, saving the serial
 	// S_0 pass. The exceptions fall where consuming four chunks worsens the
-	// remaining count's drain by a quad pass or more, cancelling the saving:
-	// counts of 1 mod 8 (fusing turns a clean multiple-of-8 drain into a
-	// 5-mod-8 remainder) and 5 mod 8 (the fused leftovers strand a leaf).
-	if r := chunks % availableLanes; r == 1 || r == 5 {
+	// remaining count's drain enough to cancel the saving: counts of 1 mod 8
+	// (fusing turns a clean multiple-of-8 drain into a 5-mod-8 remainder),
+	// 5 mod 8 (the fused leftovers strand a leaf), and 2 mod 8, where a quad
+	// costs about the two serial passes fusion saves (measured Emerald
+	// Rapids) but the fused leftovers add a net remainder quad plus up to
+	// six chunks of buffering — a measured net loss.
+	if r := chunks % availableLanes; r == 1 || r == 2 || r == 5 {
 		return 0
 	}
 	return min(chunks, 4)
@@ -93,7 +96,15 @@ func fuseTailChunks(nFull, nShared int) int {
 		return nFull % 8
 	}
 	// AVX2: the tail rides a 1..3-leaf remainder in a quad; a leading
-	// multiple of four drains through the batch and quad run kernels.
+	// multiple of four drains through the batch and quad run kernels. A bare
+	// single trailing leaf stays serial: with no narrow kernel the tail
+	// would ride a full quad, which costs about two serial passes — more
+	// than the x1 plus at-most-one-pass serial tail it replaces. (At five
+	// leaves the n=1 quad instead replaces the run kernel's second
+	// remainder quad, so it wins and stays fused.)
+	if nFull == 1 {
+		return 0
+	}
 	return nFull % 4
 }
 
