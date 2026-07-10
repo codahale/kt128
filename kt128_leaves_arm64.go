@@ -19,10 +19,12 @@ const availableLanes = 8
 // the batch kernels per byte, so any even count is fine.
 const flushChunks = 2
 
-// streamChunks is the streaming-path flush unit: two 5-chunk hybrid batches,
+// streamChunks is the streaming-path flush unit: one 5-chunk hybrid batch,
 // so buffered flushes ride the hybrid kernel instead of parity-reducing to
-// pure-NEON pairs.
-const streamChunks = 10
+// pure-NEON pairs. A single batch flushes sooner than two — a 10-chunk unit
+// strands sub-10 messages in the buffer until finalization's pair-only drain
+// (measured +11.5% at 64 KiB streaming) — and caps the buffer at one batch.
+const streamChunks = 5
 
 // hasLeafX8 reports that arm64 has no dedicated x8 kernel; a remainder of
 // eight drains through the pair loop at the same cost.
