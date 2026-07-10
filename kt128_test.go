@@ -698,6 +698,25 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 			t.Fatalf("buffer capacity = %d, want 0", cap(h.buf))
 		}
 	})
+
+	t.Run("chunk-aligned remainder drains in place", func(t *testing.T) {
+		// A bulk write ending on a chunk boundary drains its sub-unit chunk
+		// remainder in place: the buffer stays unallocated and every complete
+		// leaf is counted. 30 chunks leaves a six-chunk aligned remainder on
+		// AVX-512 (S_0 fusion takes 8) and a two-chunk one on AVX2 (fusion
+		// takes 4); arm64's fusion takes 2 and its 2-chunk flush unit covers
+		// the rest exactly, and purego's single-chunk unit leaves no
+		// remainder — both pin the same invariant trivially.
+		h := New(nil)
+		_, _ = h.Write(ptn(30 * BlockSize))
+
+		if h.leafCount != 29 {
+			t.Fatalf("leaf count = %d, want 29", h.leafCount)
+		}
+		if cap(h.buf) != 0 {
+			t.Fatalf("buffer capacity = %d, want 0", cap(h.buf))
+		}
+	})
 }
 
 func BenchmarkWrite(b *testing.B) {

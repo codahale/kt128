@@ -136,15 +136,30 @@ func (h *Hasher) Write(p []byte) (int, error) {
 			h.buf = h.buf[:0]
 		}
 
-		// Flush whole flush-unit multiples in place. An odd leftover chunk is
-		// buffered rather than processed here: it costs an x1 pass now or at
-		// finalization either way, but a later write may pair it. Complete
-		// message leaves need no lookahead, since the customization suffix
-		// added at finalization is always non-empty.
+		// Flush whole flush-unit multiples in place. Complete message leaves
+		// need no lookahead, since the customization suffix added at
+		// finalization is always non-empty.
 		processable := len(p) / BlockSize
-		if nFlush := processable - processable%flush; nFlush > 0 {
+		nFlush := processable - processable%flush
+		if nFlush > 0 {
 			h.processLeafBatch(p[:nFlush*BlockSize], nFlush)
 			p = p[nFlush*BlockSize:]
+		}
+
+		// A chunk-aligned remainder of two or more after a whole-unit flush
+		// drains in place as well: with no partial tail to extend, finalization
+		// would push these same chunks through the same narrow kernels from the
+		// buffer, so buffering buys no better pass and costs the copy plus its
+		// allocation (up to seven chunks). A sub-chunk continuation could have
+		// completed the buffered chunks into a whole batch, but a stream
+		// overwhelmingly ends at a bulk write, and the miss costs one narrow
+		// pass. A single trailing chunk still buffers — an x1 pass now or at
+		// finalization costs the same, and a later write may pair it — and a
+		// ragged tail still buffers whole, so its trailing chunks can ride a
+		// fused pass with the partial at finalization.
+		if r := len(p) / BlockSize; nFlush > 0 && r >= 2 && len(p) == r*BlockSize {
+			h.processLeafBatch(p, r)
+			p = p[:0]
 		}
 
 		// Buffer the tail.
