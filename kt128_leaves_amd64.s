@@ -1112,3 +1112,353 @@ leaves_quad_avx2_final_round:
 
 	VZEROUPPER
 	RET
+
+// ZERO_BUFFER_A_X4 zeroes the 25-lane state buffer A (800 bytes at SP+0).
+#define ZERO_BUFFER_A_X4 \
+	VPXOR	Y0, Y0, Y0; \
+	VMOVDQU	Y0, 0*32(SP); \
+	VMOVDQU	Y0, 1*32(SP); \
+	VMOVDQU	Y0, 2*32(SP); \
+	VMOVDQU	Y0, 3*32(SP); \
+	VMOVDQU	Y0, 4*32(SP); \
+	VMOVDQU	Y0, 5*32(SP); \
+	VMOVDQU	Y0, 6*32(SP); \
+	VMOVDQU	Y0, 7*32(SP); \
+	VMOVDQU	Y0, 8*32(SP); \
+	VMOVDQU	Y0, 9*32(SP); \
+	VMOVDQU	Y0, 10*32(SP); \
+	VMOVDQU	Y0, 11*32(SP); \
+	VMOVDQU	Y0, 12*32(SP); \
+	VMOVDQU	Y0, 13*32(SP); \
+	VMOVDQU	Y0, 14*32(SP); \
+	VMOVDQU	Y0, 15*32(SP); \
+	VMOVDQU	Y0, 16*32(SP); \
+	VMOVDQU	Y0, 17*32(SP); \
+	VMOVDQU	Y0, 18*32(SP); \
+	VMOVDQU	Y0, 19*32(SP); \
+	VMOVDQU	Y0, 20*32(SP); \
+	VMOVDQU	Y0, 21*32(SP); \
+	VMOVDQU	Y0, 22*32(SP); \
+	VMOVDQU	Y0, 23*32(SP); \
+	VMOVDQU	Y0, 24*32(SP)
+
+// ABSORB_STRIPE21_X4 reloads the four lane pointers from the frame, absorbs
+// one full 168-byte stripe, advances and stores the pointers back.
+#define ABSORB_STRIPE21_X4 \
+	LEAQ	0(SP), R8; \
+	MOVQ	1600(SP), AX; \
+	MOVQ	1608(SP), CX; \
+	MOVQ	1616(SP), DX; \
+	MOVQ	1624(SP), BX; \
+	ABSORB_LANE_X4(0); \
+	ABSORB_LANE_X4(1); \
+	ABSORB_LANE_X4(2); \
+	ABSORB_LANE_X4(3); \
+	ABSORB_LANE_X4(4); \
+	ABSORB_LANE_X4(5); \
+	ABSORB_LANE_X4(6); \
+	ABSORB_LANE_X4(7); \
+	ABSORB_LANE_X4(8); \
+	ABSORB_LANE_X4(9); \
+	ABSORB_LANE_X4(10); \
+	ABSORB_LANE_X4(11); \
+	ABSORB_LANE_X4(12); \
+	ABSORB_LANE_X4(13); \
+	ABSORB_LANE_X4(14); \
+	ABSORB_LANE_X4(15); \
+	ABSORB_LANE_X4(16); \
+	ABSORB_LANE_X4(17); \
+	ABSORB_LANE_X4(18); \
+	ABSORB_LANE_X4(19); \
+	ABSORB_LANE_X4(20); \
+	ADDQ	$168, AX; \
+	ADDQ	$168, CX; \
+	ADDQ	$168, DX; \
+	ADDQ	$168, BX; \
+	MOVQ	AX, 1600(SP); \
+	MOVQ	CX, 1608(SP); \
+	MOVQ	DX, 1616(SP); \
+	MOVQ	BX, 1624(SP)
+
+// ABSORB_FINAL16_X4 reloads the lane pointers and absorbs the final 128-byte
+// partial block (16 lanes) without advancing them.
+#define ABSORB_FINAL16_X4 \
+	LEAQ	0(SP), R8; \
+	MOVQ	1600(SP), AX; \
+	MOVQ	1608(SP), CX; \
+	MOVQ	1616(SP), DX; \
+	MOVQ	1624(SP), BX; \
+	ABSORB_LANE_X4(0); \
+	ABSORB_LANE_X4(1); \
+	ABSORB_LANE_X4(2); \
+	ABSORB_LANE_X4(3); \
+	ABSORB_LANE_X4(4); \
+	ABSORB_LANE_X4(5); \
+	ABSORB_LANE_X4(6); \
+	ABSORB_LANE_X4(7); \
+	ABSORB_LANE_X4(8); \
+	ABSORB_LANE_X4(9); \
+	ABSORB_LANE_X4(10); \
+	ABSORB_LANE_X4(11); \
+	ABSORB_LANE_X4(12); \
+	ABSORB_LANE_X4(13); \
+	ABSORB_LANE_X4(14); \
+	ABSORB_LANE_X4(15)
+
+// PERMUTE12_X4(label) runs the 12-round permutation over buffers A/B; the
+// even round count leaves the state back in buffer A.
+#define PERMUTE12_X4(label) \
+	LEAQ	0(SP), R8; \
+	LEAQ	800(SP), R9; \
+	LEAQ	kt128_round_consts_4x+384(SB), R11; \
+	MOVQ	$12, R10; \
+	PCALIGN	$16; \
+label: \
+	X4_KECCAK_ROUND; \
+	XCHGQ	R8, R9; \
+	ADDQ	$32, R11; \
+	SUBQ	$1, R10; \
+	JNZ	label
+
+// EXTRACT_CVS_X4 transposes lanes 0-3 of all four instances from buffer A
+// into 4 × 32-byte CVs at the pointer stored at SP+1640.
+#define EXTRACT_CVS_X4 \
+	MOVQ	1640(SP), DI; \
+	LEAQ	0(SP), R8; \
+	VMOVDQU	0*32(R8), Y0; \
+	VMOVDQU	1*32(R8), Y1; \
+	VMOVDQU	2*32(R8), Y2; \
+	VMOVDQU	3*32(R8), Y3; \
+	VPUNPCKLQDQ	Y1, Y0, Y4; \
+	VPUNPCKHQDQ	Y1, Y0, Y5; \
+	VPUNPCKLQDQ	Y3, Y2, Y6; \
+	VPUNPCKHQDQ	Y3, Y2, Y7; \
+	VPERM2F128	$0x20, Y6, Y4, Y0; \
+	VPERM2F128	$0x20, Y7, Y5, Y1; \
+	VPERM2F128	$0x31, Y6, Y4, Y2; \
+	VPERM2F128	$0x31, Y7, Y5, Y3; \
+	VMOVDQU	Y0, 0*32(DI); \
+	VMOVDQU	Y1, 1*32(DI); \
+	VMOVDQU	Y2, 2*32(DI); \
+	VMOVDQU	Y3, 3*32(DI)
+
+// func processS0LeavesQuadAVX2(input *byte, state *uint64, cvs *byte, n uint64)
+//
+// Fused S_0 + leaf absorption for AVX2: processes n (2..4) contiguous
+// 8192-byte chunks in one x4 pass, with the final node absorbing
+// S_0 || kt12 marker in lane 0 and leaves 1..n-1 in the remaining lanes;
+// dummy lanes past n re-read chunk 0 and their CVs are ignored. Lane 0 XORs
+// the marker word 0x03 at lane 16, takes no pad10*1, and is NOT put through
+// the closing permutation — its 25-lane state is written to state first
+// (position 136 is set by the Go wrapper). Leaf CVs land in cvs slots
+// 1..n-1; slot 0 and dummy slots hold garbage.
+//
+// Frame: 1664 bytes local (0-799 buffer A, 800-1599 buffer B, 1600-1624 lane
+// pointers, 1632 block count, 1640 cvs, 1648 state), 32 bytes args.
+TEXT ·processS0LeavesQuadAVX2(SB), $1664-32
+	MOVQ	input+0(FP), SI
+	MOVQ	state+8(FP), R10
+	MOVQ	R10, 1648(SP)
+	MOVQ	cvs+16(FP), R10
+	MOVQ	R10, 1640(SP)
+	MOVQ	n+24(FP), R12
+
+	// Lane pointers: lane i = input + ((i < n) ? i*8192 : 0); lane 0 is S_0.
+	MOVQ	SI, 1600(SP)
+	MOVQ	$8192, R13;  XORQ R10, R10; CMPQ R12, $1; CMOVQGT R13, R10; LEAQ (SI)(R10*1), R11; MOVQ R11, 1608(SP)
+	MOVQ	$16384, R13; XORQ R10, R10; CMPQ R12, $2; CMOVQGT R13, R10; LEAQ (SI)(R10*1), R11; MOVQ R11, 1616(SP)
+	MOVQ	$24576, R13; XORQ R10, R10; CMPQ R12, $3; CMOVQGT R13, R10; LEAQ (SI)(R10*1), R11; MOVQ R11, 1624(SP)
+
+	MOVQ	$48, 1632(SP)
+
+	ZERO_BUFFER_A_X4
+
+s0_quad_avx2_loop:
+	CMPQ	1632(SP), $0
+	JEQ	s0_quad_avx2_final
+
+	ABSORB_STRIPE21_X4
+	SUBQ	$1, 1632(SP)
+	PERMUTE12_X4(s0_quad_avx2_round)
+
+	JMP	s0_quad_avx2_loop
+
+s0_quad_avx2_final:
+	ABSORB_FINAL16_X4
+
+	// Lane 16: kt12 marker word 0x03 for the final node (instance 0), leaf
+	// DS 0x0B for the leaves; lane 20: pad10*1 end 0x80 for the leaves only.
+	LEAQ	0(SP), R8
+	MOVQ	$0x03, R10
+	XORQ	R10, 16*32+0(R8)
+	MOVQ	$0x0B, R10
+	XORQ	R10, 16*32+8(R8)
+	XORQ	R10, 16*32+16(R8)
+	XORQ	R10, 16*32+24(R8)
+	MOVQ	$0x8000000000000000, R10
+	XORQ	R10, 20*32+8(R8)
+	XORQ	R10, 20*32+16(R8)
+	XORQ	R10, 20*32+24(R8)
+
+	// Extract the final-node state (instance 0 of all 25 lanes) before the
+	// leaves' closing permutation scrambles it.
+	MOVQ	1648(SP), R9
+	MOVQ	0*32+0(R8), R10;  MOVQ R10, 0*8(R9)
+	MOVQ	1*32+0(R8), R10;  MOVQ R10, 1*8(R9)
+	MOVQ	2*32+0(R8), R10;  MOVQ R10, 2*8(R9)
+	MOVQ	3*32+0(R8), R10;  MOVQ R10, 3*8(R9)
+	MOVQ	4*32+0(R8), R10;  MOVQ R10, 4*8(R9)
+	MOVQ	5*32+0(R8), R10;  MOVQ R10, 5*8(R9)
+	MOVQ	6*32+0(R8), R10;  MOVQ R10, 6*8(R9)
+	MOVQ	7*32+0(R8), R10;  MOVQ R10, 7*8(R9)
+	MOVQ	8*32+0(R8), R10;  MOVQ R10, 8*8(R9)
+	MOVQ	9*32+0(R8), R10;  MOVQ R10, 9*8(R9)
+	MOVQ	10*32+0(R8), R10; MOVQ R10, 10*8(R9)
+	MOVQ	11*32+0(R8), R10; MOVQ R10, 11*8(R9)
+	MOVQ	12*32+0(R8), R10; MOVQ R10, 12*8(R9)
+	MOVQ	13*32+0(R8), R10; MOVQ R10, 13*8(R9)
+	MOVQ	14*32+0(R8), R10; MOVQ R10, 14*8(R9)
+	MOVQ	15*32+0(R8), R10; MOVQ R10, 15*8(R9)
+	MOVQ	16*32+0(R8), R10; MOVQ R10, 16*8(R9)
+	MOVQ	17*32+0(R8), R10; MOVQ R10, 17*8(R9)
+	MOVQ	18*32+0(R8), R10; MOVQ R10, 18*8(R9)
+	MOVQ	19*32+0(R8), R10; MOVQ R10, 19*8(R9)
+	MOVQ	20*32+0(R8), R10; MOVQ R10, 20*8(R9)
+	MOVQ	21*32+0(R8), R10; MOVQ R10, 21*8(R9)
+	MOVQ	22*32+0(R8), R10; MOVQ R10, 22*8(R9)
+	MOVQ	23*32+0(R8), R10; MOVQ R10, 23*8(R9)
+	MOVQ	24*32+0(R8), R10; MOVQ R10, 24*8(R9)
+
+	// Closing permutation for the leaf lanes.
+	PERMUTE12_X4(s0_quad_avx2_final_round)
+
+	EXTRACT_CVS_X4
+
+	VZEROUPPER
+	RET
+
+// func processLeavesQuadTailAVX2(input *byte, cvs *byte, n, nShared uint64, lane1 *uint64)
+//
+// Tail-lane variant of the quad kernel: processes n (1..3) contiguous
+// complete chunks in lanes 0..n-1 plus a trailing partial leaf in lane n,
+// whose data starts at input+n*8192 and participates for its nShared whole
+// 168-byte stripes. After those stripes lane n's 25-lane state is written to
+// lane1 for the Go caller to finish, the lane is re-clamped to chunk 0 as a
+// dummy, and the complete lanes run their remaining stripes and padded final
+// block. CVs for all 4 lanes land in cvs; the caller reads the first n.
+//
+// Reads exactly n*8192 complete-chunk bytes and nShared*168 tail bytes.
+// nShared must be in [0, 48].
+//
+// Frame: 1680 bytes local (0-799 buffer A, 800-1599 buffer B, 1600-1624 lane
+// pointers, 1632 block count, 1640 cvs, 1648 lane1, 1656 tail lane index,
+// 1664 input base), 40 bytes args.
+TEXT ·processLeavesQuadTailAVX2(SB), $1680-40
+	MOVQ	input+0(FP), SI
+	MOVQ	SI, 1664(SP)
+	MOVQ	cvs+8(FP), R10
+	MOVQ	R10, 1640(SP)
+	MOVQ	n+16(FP), R12
+	MOVQ	R12, 1656(SP)
+	MOVQ	lane1+32(FP), R10
+	MOVQ	R10, 1648(SP)
+
+	// Lane pointers: lane i = input + ((i <= n) ? i*8192 : 0); lane n is the
+	// tail, lanes past it are dummies clamped to chunk 0.
+	MOVQ	SI, 1600(SP)
+	MOVQ	$8192, R13;  XORQ R10, R10; CMPQ R12, $1; CMOVQGE R13, R10; LEAQ (SI)(R10*1), R11; MOVQ R11, 1608(SP)
+	MOVQ	$16384, R13; XORQ R10, R10; CMPQ R12, $2; CMOVQGE R13, R10; LEAQ (SI)(R10*1), R11; MOVQ R11, 1616(SP)
+	MOVQ	$24576, R13; XORQ R10, R10; CMPQ R12, $3; CMOVQGE R13, R10; LEAQ (SI)(R10*1), R11; MOVQ R11, 1624(SP)
+
+	MOVQ	nShared+24(FP), R10
+	MOVQ	R10, 1632(SP)
+
+	ZERO_BUFFER_A_X4
+
+quad_tail_avx2_shared_loop:
+	CMPQ	1632(SP), $0
+	JEQ	quad_tail_avx2_export
+
+	ABSORB_STRIPE21_X4
+	SUBQ	$1, 1632(SP)
+	PERMUTE12_X4(quad_tail_avx2_shared_round)
+
+	JMP	quad_tail_avx2_shared_loop
+
+quad_tail_avx2_export:
+	// Export the tail lane's state (instance n of all 25 lanes) for the Go
+	// tail finish; the remaining stripes only affect the complete lanes.
+	MOVQ	1656(SP), R10
+	LEAQ	0(SP)(R10*8), R8
+	MOVQ	1648(SP), R9
+	MOVQ	0*32(R8), R10;  MOVQ R10, 0*8(R9)
+	MOVQ	1*32(R8), R10;  MOVQ R10, 1*8(R9)
+	MOVQ	2*32(R8), R10;  MOVQ R10, 2*8(R9)
+	MOVQ	3*32(R8), R10;  MOVQ R10, 3*8(R9)
+	MOVQ	4*32(R8), R10;  MOVQ R10, 4*8(R9)
+	MOVQ	5*32(R8), R10;  MOVQ R10, 5*8(R9)
+	MOVQ	6*32(R8), R10;  MOVQ R10, 6*8(R9)
+	MOVQ	7*32(R8), R10;  MOVQ R10, 7*8(R9)
+	MOVQ	8*32(R8), R10;  MOVQ R10, 8*8(R9)
+	MOVQ	9*32(R8), R10;  MOVQ R10, 9*8(R9)
+	MOVQ	10*32(R8), R10; MOVQ R10, 10*8(R9)
+	MOVQ	11*32(R8), R10; MOVQ R10, 11*8(R9)
+	MOVQ	12*32(R8), R10; MOVQ R10, 12*8(R9)
+	MOVQ	13*32(R8), R10; MOVQ R10, 13*8(R9)
+	MOVQ	14*32(R8), R10; MOVQ R10, 14*8(R9)
+	MOVQ	15*32(R8), R10; MOVQ R10, 15*8(R9)
+	MOVQ	16*32(R8), R10; MOVQ R10, 16*8(R9)
+	MOVQ	17*32(R8), R10; MOVQ R10, 17*8(R9)
+	MOVQ	18*32(R8), R10; MOVQ R10, 18*8(R9)
+	MOVQ	19*32(R8), R10; MOVQ R10, 19*8(R9)
+	MOVQ	20*32(R8), R10; MOVQ R10, 20*8(R9)
+	MOVQ	21*32(R8), R10; MOVQ R10, 21*8(R9)
+	MOVQ	22*32(R8), R10; MOVQ R10, 22*8(R9)
+	MOVQ	23*32(R8), R10; MOVQ R10, 23*8(R9)
+	MOVQ	24*32(R8), R10; MOVQ R10, 24*8(R9)
+
+	// Re-clamp the tail lane to chunk 0: it is dead from here on but must
+	// keep reading in-bounds memory.
+	MOVQ	1656(SP), R10
+	MOVQ	1664(SP), R11
+	LEAQ	1600(SP), R8
+	MOVQ	R11, 0(R8)(R10*8)
+
+	// Remaining stripes for the complete lanes: 48 - nShared.
+	MOVQ	$48, R10
+	SUBQ	nShared+24(FP), R10
+	MOVQ	R10, 1632(SP)
+
+quad_tail_avx2_rest_loop:
+	CMPQ	1632(SP), $0
+	JEQ	quad_tail_avx2_final
+
+	ABSORB_STRIPE21_X4
+	SUBQ	$1, 1632(SP)
+	PERMUTE12_X4(quad_tail_avx2_rest_round)
+
+	JMP	quad_tail_avx2_rest_loop
+
+quad_tail_avx2_final:
+	ABSORB_FINAL16_X4
+
+	// XOR padding: DS=0x0B into lane 16, pad10*1 end 0x80 into lane 20 (the
+	// tail and dummy instances are dead).
+	LEAQ	0(SP), R8
+	MOVQ	$0x0B, R10
+	XORQ	R10, 16*32+0(R8)
+	XORQ	R10, 16*32+8(R8)
+	XORQ	R10, 16*32+16(R8)
+	XORQ	R10, 16*32+24(R8)
+	MOVQ	$0x8000000000000000, R10
+	XORQ	R10, 20*32+0(R8)
+	XORQ	R10, 20*32+8(R8)
+	XORQ	R10, 20*32+16(R8)
+	XORQ	R10, 20*32+24(R8)
+
+	PERMUTE12_X4(quad_tail_avx2_final_round)
+
+	EXTRACT_CVS_X4
+
+	VZEROUPPER
+	RET

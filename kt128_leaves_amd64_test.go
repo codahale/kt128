@@ -144,6 +144,13 @@ func TestAVX2MatchesAVX512(t *testing.T) {
 		17*BlockSize + 123, 23*BlockSize + 4567, 64 * 1024, 1024 * 1024,
 		2 * 1024 * 1024, 8 * 1024 * 1024,
 		24137569, // the RFC vector that diverged under SDE -skx
+		// AVX2 S0-quad and quad-tail fusion shapes: 2..4-chunk messages,
+		// finalization remainders of 1..3 completes plus a partial, and both
+		// sides of the mod-8-equals-5 stranded-leaf exception.
+		2 * BlockSize, 3 * BlockSize, 4 * BlockSize,
+		4*BlockSize + BlockSize/2, 6*BlockSize + BlockSize/2,
+		9*BlockSize + BlockSize/2, 10*BlockSize + BlockSize/2,
+		5 * BlockSize, 5*BlockSize + rate, 13 * BlockSize, 13*BlockSize + rate - 1,
 	}
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
