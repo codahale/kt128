@@ -99,13 +99,14 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	h.pos += uint64(n)
 
 	lanes := streamChunks
+	flush := flushChunks()
 
 	// Direct fast path: process chunks in place from p to avoid copying. With
 	// buffered data present, mid-size writes keep the buffer-and-batch route
 	// below so buffered chunks aren't pushed through narrow kernels
-	// prematurely; where flushChunks == streamChunks this reduces to the
+	// prematurely; where flushChunks() == streamChunks this reduces to the
 	// flush-unit threshold alone.
-	if len(p) >= flushChunks*BlockSize && (len(h.buf) == 0 || len(p) >= lanes*BlockSize) {
+	if len(p) >= flush*BlockSize && (len(h.buf) == 0 || len(p) >= lanes*BlockSize) {
 		// Drain any buffered data: complete the partial tail with bytes from
 		// p, then flush all buffered chunks as a single batch.
 		if len(h.buf) > 0 {
@@ -118,13 +119,13 @@ func (h *Hasher) Write(p []byte) (int, error) {
 			h.buf = h.buf[:0]
 		}
 
-		// Flush whole flushChunks-multiples in place. An odd leftover chunk is
+		// Flush whole flush-unit multiples in place. An odd leftover chunk is
 		// buffered rather than processed here: it costs an x1 pass now or at
 		// finalization either way, but a later write may pair it. Complete
 		// message leaves need no lookahead, since the customization suffix
 		// added at finalization is always non-empty.
 		processable := len(p) / BlockSize
-		if nFlush := processable - processable%flushChunks; nFlush > 0 {
+		if nFlush := processable - processable%flush; nFlush > 0 {
 			h.processLeafBatch(p[:nFlush*BlockSize], nFlush)
 			p = p[nFlush*BlockSize:]
 		}

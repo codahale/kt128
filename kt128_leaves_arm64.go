@@ -17,7 +17,7 @@ const availableLanes = 8
 // flushChunks is the smallest chunk count the direct fast path may flush
 // without meaningful throughput loss: the x2 pair kernel runs within ~5% of
 // the batch kernels per byte, so any even count is fine.
-const flushChunks = 2
+func flushChunks() int { return 2 }
 
 // streamChunks is the streaming-path flush unit: one 5-chunk hybrid batch,
 // so buffered flushes ride the hybrid kernel instead of parity-reducing to

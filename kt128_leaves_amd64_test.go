@@ -83,6 +83,42 @@ func BenchmarkPairVsRun(b *testing.B) {
 	}
 }
 
+// TestWriteForceAVX2DirectFlush pins the AVX2 direct-flush shapes: with a
+// four-chunk flush unit, a quad-sized tail left after S_0 fusion flushes
+// straight from the caller's buffer instead of being copied into the leaf
+// buffer. Output correctness for these shapes is covered by
+// TestAVX2MatchesAVX512; this test asserts the scheduling itself.
+func TestWriteForceAVX2DirectFlush(t *testing.T) {
+	saved := cpuid.HasAVX512
+	defer func() { cpuid.HasAVX512 = saved }()
+	cpuid.HasAVX512 = false
+
+	t.Run("quad tail flushes in place", func(t *testing.T) {
+		h := New(nil)
+		_, _ = h.Write(ptn(8 * BlockSize)) // S_0+3 leaves fused, 4 leaves in place
+
+		if h.leafCount != 7 {
+			t.Fatalf("leaf count = %d, want 7", h.leafCount)
+		}
+		if cap(h.buf) != 0 {
+			t.Fatalf("buffer capacity = %d, want 0", cap(h.buf))
+		}
+	})
+
+	t.Run("sub-batch flush with buffered tail", func(t *testing.T) {
+		h := New(nil)
+		// S_0+3 leaves fused, 4 leaves in place, 3 chunks + 37 bytes buffered.
+		_, _ = h.Write(ptn(11*BlockSize + 37))
+
+		if h.leafCount != 7 {
+			t.Fatalf("leaf count = %d, want 7", h.leafCount)
+		}
+		if len(h.buf) != 3*BlockSize+37 {
+			t.Fatalf("buffered bytes = %d, want %d", len(h.buf), 3*BlockSize+37)
+		}
+	})
+}
+
 // BenchmarkWriteForceAVX2 measures one-shot hashing with the AVX2 kernels forced
 // (HasAVX512 disabled), so the AVX2 remainder path is exercised on this host.
 func BenchmarkWriteForceAVX2(b *testing.B) {

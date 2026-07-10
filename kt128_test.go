@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -633,8 +634,14 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 	})
 
 	t.Run("direct pairs below lane batch", func(t *testing.T) {
-		if flushChunks >= availableLanes {
+		if flushChunks() >= availableLanes {
 			t.Skip("no sub-batch direct flushing on this platform")
+		}
+		if runtime.GOARCH == "amd64" {
+			// amd64 S_0 fusion consumes four chunks, changing the shape
+			// arithmetic below; TestWriteForceAVX2DirectFlush covers the
+			// AVX2 sub-batch direct flush instead.
+			t.Skip("amd64 shapes are covered by TestWriteForceAVX2DirectFlush")
 		}
 		h := New(nil)
 		_, _ = h.Write(ptn(6*BlockSize + 37)) // S_0+leaf fused, 4 leaves in place, tail buffered

@@ -74,7 +74,7 @@ implementation switches to tree hashing. Leaf compression is processed in parall
 
 The first chunk and any trailing partial chunk are fused into the parallel passes rather than absorbed serially, so
 throughput holds across ragged message sizes. Representative one-shot throughput at 1 MiB: ~6.6 GB/s on an Apple M4
-Pro and ~6.7 GB/s on Intel Emerald Rapids.
+Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AVX-512 disabled).
 
 ## API Notes
 

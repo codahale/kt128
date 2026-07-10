@@ -21,10 +21,16 @@ import (
 const availableLanes = 8
 
 // flushChunks is the smallest chunk count the direct fast path may flush
-// without meaningful throughput loss. amd64 has no cheap narrow batch kernel
-// (the remainder paths use masked gathers or dummy lanes), so it stays at
-// the full SIMD width.
-const flushChunks = 8
+// without meaningful throughput loss. On AVX-512 it is the full SIMD width:
+// the remainder paths are masked passes whose cost is flat at any lane
+// occupancy. On AVX2 it is one quad: the quad kernel's cost is flat at four
+// lanes, so a quad-sized tail flushes directly instead of riding the buffer.
+func flushChunks() int {
+	if cpuid.HasAVX512 {
+		return availableLanes
+	}
+	return 4
+}
 
 // streamChunks is the streaming-path flush unit; amd64 has no hybrid batch
 // kernel, so it is the SIMD width.
@@ -66,13 +72,18 @@ func fuseS0Chunks(chunks, tail int) int {
 		return 0
 	}
 	// AVX2: the quad hosts S_0 plus up to three leaves, saving the serial
-	// S_0 pass. The exceptions fall where consuming four chunks worsens the
-	// remaining count's drain enough to cancel the saving: counts of 1 mod 8
-	// (fusing turns a clean multiple-of-8 drain into a 5-mod-8 remainder),
-	// 5 mod 8 (the fused leftovers strand a leaf), and 2 mod 8, where a quad
-	// costs about the two serial passes fusion saves (measured Emerald
-	// Rapids) but the fused leftovers add a net remainder quad plus up to
-	// six chunks of buffering — a measured net loss.
+	// S_0 pass. Exactly two chunks always fuse: there are no leftovers, and
+	// the quad beats the serial S_0-plus-x1 pair it replaces (measured +11.7%
+	// at 16 KiB, Emerald Rapids). Above two, the exceptions fall where
+	// consuming four chunks worsens the remaining count's drain enough to
+	// cancel the saving: counts of 1 mod 8 (fusing turns a clean
+	// multiple-of-8 drain into a 5-mod-8 remainder), 5 mod 8 (the fused
+	// leftovers strand a leaf), and 2 mod 8, where a quad costs about the two
+	// serial passes fusion saves but the fused leftovers add a net remainder
+	// quad plus buffering — a measured net loss.
+	if chunks == 2 {
+		return 2
+	}
 	if r := chunks % availableLanes; r == 1 || r == 2 || r == 5 {
 		return 0
 	}

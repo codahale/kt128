@@ -12,7 +12,7 @@ const availableLanes = 1
 
 // flushChunks is the smallest chunk count the direct fast path may flush
 // without meaningful throughput loss; the scalar fallback has only one speed.
-const flushChunks = 1
+func flushChunks() int { return 1 }
 
 // streamChunks is the streaming-path flush unit; the scalar fallback has no
 // batch kernel, so it is a single chunk.
