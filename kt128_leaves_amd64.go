@@ -165,6 +165,9 @@ func processS0LeavesTailAVX512(input *byte, state *uint64, cvs *byte, n, nShared
 func processS0LeavesQuadAVX2(input *byte, state *uint64, cvs *byte, n uint64)
 
 //go:noescape
+func processS0LeavesQuadTailAVX2(input *byte, state *uint64, cvs *byte, n, nShared uint64, tail *uint64)
+
+//go:noescape
 func processLeavesQuadTailAVX2(input *byte, cvs *byte, n, nShared uint64, lane1 *uint64)
 
 // ─── Kernel wrappers ───
@@ -246,17 +249,27 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 }
 
 // processS0LeavesTailArch fuses processS0LeavesArch with the trailing partial
-// leaf: one masked 8-wide pass computes the final node's S_0 || marker state
-// (lane 0), n-1 leaf CVs (cvs[32:n*32]), and absorbs the partial leaf's
-// nShared whole rate-blocks — read from input[n*BlockSize:] — into lane n,
-// whose mid-absorption state lands in pending for the caller to continue.
-// input must be at least n*BlockSize + nShared*rate contiguous bytes and
-// final a zero sponge. AVX-512 only; n must be in 2..7 so lane n is free.
+// leaf: one pass computes the final node's S_0 || marker state (lane 0), n-1
+// leaf CVs (cvs[32:n*32]), and absorbs the partial leaf's nShared whole
+// rate-blocks — read from input[n*BlockSize:] — into lane n, whose
+// mid-absorption state lands in pending for the caller to continue. input
+// must be at least n*BlockSize + nShared*rate contiguous bytes and final a
+// zero sponge. Lane n must be free: a masked 8-wide pass hosts n in 2..7 on
+// AVX-512, a quad pass n in 2..3 on AVX2.
 func processS0LeavesTailArch(input []byte, n, nShared int, final, pending *sponge, cvs *[256]byte) bool {
-	if !cpuid.HasAVX512 || n < 2 || n > 7 {
+	switch {
+	case n < 2:
+		return false
+	case !cpuid.HasAVX512:
+		if n > 3 {
+			return false
+		}
+		processS0LeavesQuadTailAVX2(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
+	case n <= 7:
+		processS0LeavesTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
+	default:
 		return false
 	}
-	processS0LeavesTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
 	final.pos = BlockSize%rate + len(kt12Marker) // mid-block after S_0 || marker
 	pending.pos = 0                              // whole rate-blocks absorbed
 	return true
@@ -271,12 +284,20 @@ func processS0LeavesTailArch(input []byte, n, nShared int, final, pending *spong
 // S_0 fusion otherwise takes a cheaper 2-wide XMM pair: the flat masked pass
 // pays off only once the tail is big enough that the serial pass it replaces
 // costs more than the pair saves (measured breakeven near half a chunk,
-// Emerald Rapids).
+// Emerald Rapids). On AVX2 the quad hosts S_0 plus up to two leaves with a
+// lane to spare, and with no cheaper narrow kernel the S_0 fusion already
+// rides the quad at two chunks, so the tail's blocks always ride free.
 func fuseS0TailBlocks(chunks, tail int) int {
-	if !cpuid.HasAVX512 || chunks < 2 || chunks > 7 {
+	n := tail / rate
+	if !cpuid.HasAVX512 {
+		if chunks < 2 || chunks > 3 {
+			return 0
+		}
+		return n
+	}
+	if chunks < 2 || chunks > 7 {
 		return 0
 	}
-	n := tail / rate
 	if chunks == 2 && n < s0TailPairMin {
 		return 0
 	}

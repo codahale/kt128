@@ -209,8 +209,11 @@ func TestPartialLeafFusionSizes(t *testing.T) {
 // and the continuation must be equivalent whether it leaves the pending leaf
 // incomplete, completes it exactly (or one byte around that boundary), or
 // runs past it into more leaves. A clone taken mid-pending must continue
-// identically.
-func TestWritePendingContinuation(t *testing.T) {
+// identically. The body is a helper so the amd64 tests can rerun it with the
+// AVX2 kernels forced.
+func TestWritePendingContinuation(t *testing.T) { testWritePendingContinuation(t) }
+
+func testWritePendingContinuation(t *testing.T) {
 	for _, first := range []int{2*BlockSize + 4096, 3*BlockSize + 4096, 3*BlockSize + 4200, 7*BlockSize + 8191} {
 		room := BlockSize - first%BlockSize
 		for _, cont := range []int{0, 1, 100, 4096, room - 1, room, room + 1, room + BlockSize, room + 9*BlockSize + 17} {
@@ -275,8 +278,11 @@ func TestProcessS0Leaves(t *testing.T) {
 // the serial paths across chunk counts and tail lengths spanning rate-block
 // boundaries: the final-node state must match absorbing S_0 || kt12 marker,
 // each complete leaf's CV must match the x1 path, and continuing the exported
-// partial state must match a direct sponge over the full tail.
-func TestProcessS0LeavesTail(t *testing.T) {
+// partial state must match a direct sponge over the full tail. The body is a
+// helper so the amd64 tests can rerun it with the AVX2 kernels forced.
+func TestProcessS0LeavesTail(t *testing.T) { testProcessS0LeavesTail(t) }
+
+func testProcessS0LeavesTail(t *testing.T) {
 	suffix := []byte{0xC3, 0x3C, 0x0F}
 	ran := false
 	for n := 2; n <= 7; n++ {

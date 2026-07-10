@@ -172,6 +172,65 @@ func TestWriteS0TailFusion(t *testing.T) {
 	})
 }
 
+// TestS0TailFusionForceAVX2 reruns the S_0+tail kernel differential and
+// pending-continuation tests with the AVX2 quad kernels forced, so both
+// kernel families are exercised on an AVX-512 host.
+func TestS0TailFusionForceAVX2(t *testing.T) {
+	if !cpuid.HasAVX512 {
+		t.Skip("AVX2 path already exercised natively")
+	}
+	defer func() { cpuid.HasAVX512 = true }()
+	cpuid.HasAVX512 = false
+	t.Run("kernel", testProcessS0LeavesTail)
+	t.Run("continuation", testWritePendingContinuation)
+}
+
+// TestWriteS0TailFusionAVX2 pins the AVX2 S_0+tail fused scheduling: a
+// ragged one-shot first write of two or three chunks rides the partial's
+// whole rate-blocks in the quad's free lane unconditionally; four chunks
+// fill the quad and leave no lane.
+func TestWriteS0TailFusionAVX2(t *testing.T) {
+	saved := cpuid.HasAVX512
+	defer func() { cpuid.HasAVX512 = saved }()
+	cpuid.HasAVX512 = false
+
+	t.Run("two-chunk ragged one-shot leaves a pending leaf", func(t *testing.T) {
+		h := New(nil)
+		_, _ = h.Write(ptn(2*BlockSize + 4096)) // S_0+1 leaf fused, 24 tail blocks ride
+
+		if h.pendingLen != 24*rate {
+			t.Fatalf("pendingLen = %d, want %d", h.pendingLen, 24*rate)
+		}
+		if want := 4096 - 24*rate; len(h.buf) != want {
+			t.Fatalf("buffered bytes = %d, want %d", len(h.buf), want)
+		}
+		if h.leafCount != 1 {
+			t.Fatalf("leaf count = %d, want 1", h.leafCount)
+		}
+	})
+
+	t.Run("three-chunk ragged one-shot leaves a pending leaf", func(t *testing.T) {
+		h := New(nil)
+		_, _ = h.Write(ptn(3*BlockSize + 300)) // one whole tail block rides
+
+		if h.pendingLen != rate {
+			t.Fatalf("pendingLen = %d, want %d", h.pendingLen, rate)
+		}
+		if want := 300 - rate; len(h.buf) != want {
+			t.Fatalf("buffered bytes = %d, want %d", len(h.buf), want)
+		}
+	})
+
+	t.Run("four chunks have no free lane", func(t *testing.T) {
+		h := New(nil)
+		_, _ = h.Write(ptn(4*BlockSize + 4096))
+
+		if h.pendingLen != 0 {
+			t.Fatalf("pendingLen = %d, want 0", h.pendingLen)
+		}
+	})
+}
+
 // BenchmarkWriteForceAVX2 measures one-shot hashing with the AVX2 kernels forced
 // (HasAVX512 disabled), so the AVX2 remainder path is exercised on this host.
 func BenchmarkWriteForceAVX2(b *testing.B) {
@@ -240,6 +299,10 @@ func TestAVX2MatchesAVX512(t *testing.T) {
 		4*BlockSize + BlockSize/2, 6*BlockSize + BlockSize/2,
 		9*BlockSize + BlockSize/2, 10*BlockSize + BlockSize/2,
 		5 * BlockSize, 5*BlockSize + rate, 13 * BlockSize, 13*BlockSize + rate - 1,
+		// S_0+tail fused shapes where the two families schedule differently:
+		// at two chunks AVX-512 rides only past the pair threshold while the
+		// AVX2 quad always rides; at three chunks both ride.
+		2*BlockSize + 300, 2*BlockSize + 8191, 3*BlockSize + 4096,
 	}
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
