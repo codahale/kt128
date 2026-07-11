@@ -153,7 +153,7 @@ func TestWriteS0TailFusion(t *testing.T) {
 		}
 	})
 
-	t.Run("two chunks at the pair threshold ride the masked pass", func(t *testing.T) {
+	t.Run("two chunks at the pair threshold ride the quad", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(2*BlockSize + s0TailPairMin*rate))
 
