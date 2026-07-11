@@ -524,19 +524,10 @@ func (h *Hasher) absorbTailLeaves(head, tail []byte) {
 		return
 	}
 
-	if len(head)+len(tail) < BlockSize {
-		// A single final partial leaf = head || tail.
-		var s sponge
-		s.absorb(head)
-		s.absorb(tail)
-		s.padPermute(leafDS)
-		h.final.absorbCV(&s)
-		h.leafCount++
-		return
-	}
-
-	// The straddling leaf is full-size: head || tail[:BlockSize-len(head)].
-	n := BlockSize - len(head)
+	// The straddling leaf takes as much of tail as fits: all of it when
+	// head || tail forms a single final partial leaf, leaving nothing for the
+	// contiguous pass below.
+	n := min(BlockSize-len(head), len(tail))
 	var s sponge
 	s.absorb(head)
 	s.absorb(tail[:n])
