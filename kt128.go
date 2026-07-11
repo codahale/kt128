@@ -253,7 +253,9 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 
 	for hasLeafX8 && idx+8 <= nLeaves {
 		off := idx * BlockSize
-		processLeaves(data[off:off+8*BlockSize], &cvs)
+		if !processLeavesArch(data[off:off+8*BlockSize], &cvs) {
+			break
+		}
 		h.final.absorbCVs(cvs[:])
 		idx += 8
 	}

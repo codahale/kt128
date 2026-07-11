@@ -7,6 +7,18 @@ import (
 	"testing"
 )
 
+// processLeavesGeneric computes 8 leaf CVs using 8 independent serial sponges,
+// as a reference for the arch kernels.
+func processLeavesGeneric(input []byte, cvs *[256]byte) {
+	for inst := range 8 {
+		var s sponge
+		off := inst * BlockSize
+		s.absorbAll(input[off:off+BlockSize], leafDS)
+		// Extract CV = first 4 lanes (32 bytes).
+		s.squeeze(cvs[inst*32 : inst*32+32])
+	}
+}
+
 func TestProcessLeaves(t *testing.T) {
 	const blockSize = 8192
 

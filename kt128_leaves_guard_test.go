@@ -136,8 +136,8 @@ func runLeafKernels(t *testing.T) {
 
 	// x8 fused kernel: reads exactly 8 contiguous chunks.
 	if hasLeafX8 {
-		expectNoFault(t, "processLeaves(x8)", func() {
-			processLeaves(guardedBuffer(t, 8*BlockSize), &cvs)
+		expectNoFault(t, "processLeavesArch(x8)", func() {
+			processLeavesArch(guardedBuffer(t, 8*BlockSize), &cvs)
 		})
 	}
 
