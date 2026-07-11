@@ -147,6 +147,16 @@ func (h *Hasher) Write(p []byte) (int, error) {
 				h.bufferTail(p[:need])
 				p = p[need:]
 			}
+
+			// Complete a SIMD-width batch from buffered whole chunks before
+			// draining it. The bounded copy avoids sending a small buffered
+			// remainder through a narrow kernel when this write can fill all
+			// lanes.
+			if buffered := len(h.buf) / BlockSize; buffered < lanes && len(p) >= (lanes-buffered)*BlockSize {
+				take := (lanes - buffered) * BlockSize
+				h.bufferTail(p[:take])
+				p = p[take:]
+			}
 			h.processLeafBatch(h.buf, len(h.buf)/BlockSize)
 			h.buf = h.buf[:0]
 		}

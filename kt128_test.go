@@ -663,6 +663,34 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		}
 	})
 
+	t.Run("buffered chunks complete lane batch", func(t *testing.T) {
+		if streamChunks == 1 {
+			t.Skip("scalar path has no multi-chunk batch")
+		}
+
+		msg := ptn((streamChunks + 3) * BlockSize)
+		h := New(nil)
+		_, _ = h.Write(msg[:2*BlockSize])
+		_, _ = h.Write(msg[2*BlockSize : 3*BlockSize])
+		if len(h.buf) != BlockSize {
+			t.Fatalf("buffered bytes before top-up = %d, want %d", len(h.buf), BlockSize)
+		}
+
+		_, _ = h.Write(msg[3*BlockSize:])
+		if h.leafCount != uint64(streamChunks+1) {
+			t.Fatalf("leaf count = %d, want %d", h.leafCount, streamChunks+1)
+		}
+		if len(h.buf) != BlockSize {
+			t.Fatalf("buffered bytes after top-up = %d, want %d", len(h.buf), BlockSize)
+		}
+
+		got := make([]byte, 32)
+		_, _ = h.Read(got)
+		if want := referenceKT128(msg, nil, len(got)); !bytes.Equal(got, want) {
+			t.Fatalf("output = %x, want %x", got, want)
+		}
+	})
+
 	t.Run("direct pairs below lane batch", func(t *testing.T) {
 		if flushChunks() >= availableLanes {
 			t.Skip("no sub-batch direct flushing on this platform")
