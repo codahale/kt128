@@ -6,12 +6,14 @@ on:
     branches: [ "main" ]
     paths:
       - '**.go'
+      - '**.h'
       - '**.mod'
       - '**.s'
   pull_request:
     branches: [ "main" ]
     paths:
       - '**.go'
+      - '**.h'
       - '**.mod'
       - '**.s'
 
