@@ -17,7 +17,6 @@ func TestParseSize(t *testing.T) {
 		{"8KiB", 8 << 10},
 		{"8kib", 8 << 10},
 		{"3MiB", 3 << 20},
-		{"2GiB", 2 << 30},
 	} {
 		got, err := parseSize(tt.in)
 		if err != nil {
@@ -25,6 +24,18 @@ func TestParseSize(t *testing.T) {
 		} else if got != tt.want {
 			t.Errorf("parseSize(%q) = %d, want %d", tt.in, got, tt.want)
 		}
+	}
+
+	if strconv.IntSize == 64 {
+		want := uint64(2) << 30
+		got, err := parseSize("2GiB")
+		if err != nil {
+			t.Errorf("parseSize(%q) error: %v", "2GiB", err)
+		} else if got != int(want) {
+			t.Errorf("parseSize(%q) = %d, want %d", "2GiB", got, want)
+		}
+	} else if _, err := parseSize("2GiB"); err == nil {
+		t.Error("parseSize(\"2GiB\") succeeded on 32-bit, want overflow error")
 	}
 
 	for _, in := range []string{"", "KiB", "1.5MiB", "8QiB", "abc"} {
@@ -96,16 +107,22 @@ func TestMedianMAD(t *testing.T) {
 }
 
 func TestFormatSize(t *testing.T) {
-	for _, tt := range []struct {
+	type testCase struct {
 		in   int
 		want string
-	}{
+	}
+	tests := []testCase{
 		{100, "100B"},
 		{8192, "8KiB"},
 		{8192 + 1, "8193B"},
 		{1 << 20, "1MiB"},
-		{3 << 30, "3GiB"},
-	} {
+	}
+	if strconv.IntSize == 64 {
+		threeGiB := uint64(3) << 30
+		tests = append(tests, testCase{int(threeGiB), "3GiB"})
+	}
+
+	for _, tt := range tests {
 		if got := formatSize(tt.in); got != tt.want {
 			t.Errorf("formatSize(%d) = %q, want %q", tt.in, got, tt.want)
 		}
