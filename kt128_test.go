@@ -197,7 +197,7 @@ func TestClone(t *testing.T) {
 
 			clone := h.Clone()
 
-			// Use readCustom with a custom string to test clone + custom finalization.
+			// Finalizing the original must not affect the clone.
 			want := make([]byte, 64)
 			_, _ = h.Read(want)
 
