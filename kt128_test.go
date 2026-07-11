@@ -169,11 +169,7 @@ func TestRFCVectors(t *testing.T) {
 			}
 
 			out := make([]byte, tc.outLen)
-			if len(tc.custom) > 0 {
-				_, _ = h.Read(out)
-			} else {
-				_, _ = h.Read(out)
-			}
+			_, _ = h.Read(out)
 
 			var got []byte
 			if tc.last32 {
