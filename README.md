@@ -82,7 +82,8 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
 - `Write` absorbs message bytes.
 - `Read(dst)` squeezes output into `dst`.
 - `Clone` copies the current state so both hashers can evolve independently.
-- `Reset` clears the hasher for reuse.
+- `Reset` resets the hasher for reuse without scrubbing buffered message data.
+- `Clear` zeros message-derived state and resets the hasher for reuse while preserving its customization string.
 - `Equal` reports whether two hashers have identical state, returning 1 if equal and 0 otherwise, in constant time.
 - `Pos` returns the number of bytes written so far.
 

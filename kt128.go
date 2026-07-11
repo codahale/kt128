@@ -366,6 +366,17 @@ func (h *Hasher) Reset() {
 	h.state = stateSingle
 }
 
+// Clear zeros all message-derived state owned by the Hasher and resets it for
+// reuse, preserving the customization string passed to New. Unlike Reset, it
+// scrubs the full backing array of the buffered message before releasing it.
+func (h *Hasher) Clear() {
+	c := h.c
+	if cap(h.buf) > 0 {
+		clear(h.buf[:cap(h.buf)])
+	}
+	*h = Hasher{c: c}
+}
+
 // Equal returns 1 if h and other represent identical states, 0 otherwise.
 func (h *Hasher) Equal(other *Hasher) int {
 	var a, b [32]byte

@@ -361,6 +361,62 @@ func TestReset(t *testing.T) {
 	}
 }
 
+func TestClear(t *testing.T) {
+	custom := ptn(41)
+	h := New(custom)
+
+	// Fill the entire buffer allocation, including capacity beyond its length,
+	// so Clear must scrub storage that may retain bytes from earlier writes.
+	h.buf = make([]byte, BlockSize, BlockSize+257)
+	buffer := h.buf[:cap(h.buf)]
+	for i := range buffer {
+		buffer[i] = 0xA5
+	}
+	h.buf = h.buf[:0]
+	h.final.a[0] = 1
+	h.final.a[lanes-1] = 2
+	h.final.pos = 17
+	h.pos = BlockSize
+	h.leafCount = 3
+	h.pendingLen = rate
+	h.state = stateFinalized
+	h.ds = treeDS
+	final := &h.final
+
+	h.Clear()
+
+	for i, b := range buffer {
+		if b != 0 {
+			t.Fatalf("buffer[%d] = %#x after Clear, want 0", i, b)
+		}
+	}
+	if *final != (sponge{}) {
+		t.Fatalf("final sponge after Clear = %#v, want zero", *final)
+	}
+	if h.buf != nil {
+		t.Fatalf("buffer after Clear = %#v, want nil", h.buf)
+	}
+	if h.pos != 0 || h.leafCount != 0 || h.pendingLen != 0 || h.state != stateSingle || h.ds != 0 {
+		t.Fatalf("Hasher metadata was not reset by Clear: %#v", h)
+	}
+	if !bytes.Equal(h.c, custom) {
+		t.Fatal("Clear did not preserve the customization string")
+	}
+
+	msg := ptn(BlockSize + 1)
+	_, _ = h.Write(msg)
+	got := make([]byte, 64)
+	_, _ = h.Read(got)
+
+	fresh := New(custom)
+	_, _ = fresh.Write(msg)
+	want := make([]byte, 64)
+	_, _ = fresh.Read(want)
+	if !bytes.Equal(got, want) {
+		t.Fatal("Hasher reused after Clear differs from a fresh customized Hasher")
+	}
+}
+
 // TestCustomizationStringCopied verifies that New copies the customization
 // string, so mutating the caller's slice afterward cannot change the output.
 func TestCustomizationStringCopied(t *testing.T) {
