@@ -19,6 +19,20 @@ const availableLanes = 8
 // the batch kernels per byte, so any even count is fine.
 func flushChunks() int { return 2 }
 
+// directFlushChunks returns the complete-chunk prefix to process from a direct
+// write. Odd counts ending in 5, 7, or 9 use one 5-chunk hybrid batch plus
+// pairs more cheaply than flushing the even prefix and eventually processing
+// the stranded leaf serially. Other odd counts retain that leaf so a later
+// write can complete a faster batch.
+func directFlushChunks(n int) int {
+	switch n % 10 {
+	case 5, 7, 9:
+		return n
+	default:
+		return n &^ 1
+	}
+}
+
 // streamChunks is the streaming-path flush unit: one 5-chunk hybrid batch,
 // so buffered flushes ride the hybrid kernel instead of parity-reducing to
 // pure-NEON pairs. A single batch flushes sooner than two — a 10-chunk unit

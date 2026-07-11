@@ -36,6 +36,12 @@ func flushChunks() int {
 	return 4
 }
 
+// directFlushChunks returns the largest whole direct-flush unit in n.
+func directFlushChunks(n int) int {
+	flush := flushChunks()
+	return n - n%flush
+}
+
 // streamChunks is the streaming-path flush unit; amd64 has no hybrid batch
 // kernel, so it is the SIMD width.
 const streamChunks = availableLanes

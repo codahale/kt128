@@ -14,6 +14,9 @@ const availableLanes = 1
 // without meaningful throughput loss; the scalar fallback has only one speed.
 func flushChunks() int { return 1 }
 
+// directFlushChunks returns the complete scalar prefix in n.
+func directFlushChunks(n int) int { return n }
+
 // streamChunks is the streaming-path flush unit; the scalar fallback has no
 // batch kernel, so it is a single chunk.
 const streamChunks = availableLanes

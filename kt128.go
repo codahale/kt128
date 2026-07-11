@@ -151,11 +151,11 @@ func (h *Hasher) Write(p []byte) (int, error) {
 			h.buf = h.buf[:0]
 		}
 
-		// Flush whole flush-unit multiples in place. Complete message leaves
-		// need no lookahead, since the customization suffix added at
-		// finalization is always non-empty.
+		// Flush the architecture-selected complete-chunk prefix in place.
+		// Complete message leaves need no lookahead, since the customization
+		// suffix added at finalization is always non-empty.
 		processable := len(p) / BlockSize
-		nFlush := processable - processable%flush
+		nFlush := directFlushChunks(processable)
 		if nFlush > 0 {
 			h.processLeafBatch(p[:nFlush*BlockSize], nFlush)
 			p = p[nFlush*BlockSize:]
