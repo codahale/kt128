@@ -223,8 +223,11 @@ func parseSizes(list, sweep string) ([]int, error) {
 		if lo <= 0 || hi < lo || step <= 0 {
 			return nil, fmt.Errorf("-sweep: want 0 < min <= max and step > 0, got %q", sweep)
 		}
-		for n := lo; n <= hi; n += step {
+		for n := lo; ; n += step {
 			sizes = append(sizes, n)
+			if n > hi-step {
+				break
+			}
 		}
 	}
 	slices.Sort(sizes)
@@ -250,11 +253,15 @@ func parseSize(s string) (int, error) {
 			break
 		}
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(num))
+	n, err := strconv.ParseUint(strings.TrimSpace(num), 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("invalid size %q", s)
 	}
-	return n * mult, nil
+	maxInt := uint64(^uint(0) >> 1)
+	if n > maxInt/uint64(mult) {
+		return 0, fmt.Errorf("size %q overflows int", s)
+	}
+	return int(n) * mult, nil
 }
 
 func formatSize(n int) string {

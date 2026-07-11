@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -31,6 +32,12 @@ func TestParseSize(t *testing.T) {
 			t.Errorf("parseSize(%q) succeeded, want error", in)
 		}
 	}
+
+	maxInt := int(^uint(0) >> 1)
+	overflow := strconv.Itoa(maxInt/(1<<10)+1) + "KiB"
+	if _, err := parseSize(overflow); err == nil {
+		t.Errorf("parseSize(%q) succeeded, want overflow error", overflow)
+	}
 }
 
 func TestParseSizes(t *testing.T) {
@@ -57,6 +64,19 @@ func TestParseSizesErrors(t *testing.T) {
 		if _, err := parseSizes(tt.list, tt.sweep); err == nil {
 			t.Errorf("parseSizes(%q, %q) succeeded, want error", tt.list, tt.sweep)
 		}
+	}
+}
+
+func TestParseSizesSweepDoesNotOverflow(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	sweep := strconv.Itoa(maxInt-1) + ":" + strconv.Itoa(maxInt) + ":2"
+	got, err := parseSizes("", sweep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []int{maxInt - 1}
+	if !slices.Equal(got, want) {
+		t.Errorf("parseSizes sweep = %v, want %v", got, want)
 	}
 }
 
