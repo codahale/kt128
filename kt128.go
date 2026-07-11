@@ -448,21 +448,14 @@ func (h *Hasher) absorbMessage(suffix []byte) {
 	// suffix, absorbed straight into the exported leaf state.
 	if h.pendingLen > 0 {
 		h.pending.absorb(buf)
-		room := BlockSize - h.pendingLen - len(buf)
-		if len(suffix) > room {
-			// The suffix completes the pending leaf; its remainder forms
-			// the last leaves.
-			h.pending.absorb(suffix[:room])
-			h.pending.padPermute(leafDS)
-			h.final.absorbCV(&h.pending)
-			h.leafCount++
-			h.absorbContiguousLeaves(suffix[room:])
-		} else {
-			h.pending.absorb(suffix)
-			h.pending.padPermute(leafDS)
-			h.final.absorbCV(&h.pending)
-			h.leafCount++
-		}
+		// The pending leaf takes as much of the suffix as fits; any
+		// remainder forms the last leaves.
+		n := min(BlockSize-h.pendingLen-len(buf), len(suffix))
+		h.pending.absorb(suffix[:n])
+		h.pending.padPermute(leafDS)
+		h.final.absorbCV(&h.pending)
+		h.leafCount++
+		h.absorbContiguousLeaves(suffix[n:])
 	} else {
 		// Tree mode: process buf || suffix as leaves S_1, S_2, ... plus terminator.
 		// Complete leaves lying entirely within buf use the SIMD batch path
