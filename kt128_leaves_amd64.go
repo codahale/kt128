@@ -80,6 +80,20 @@ func fuseS0Chunks(chunks, tail int) int {
 		return 0
 	}
 	if cpuid.HasAVX512 {
+		// Past one whole batch, counts of 2 and 4 mod 8 fuse narrow instead:
+		// the XMM S_0 pair (~5.7µs) or YMM S_0 quad (~6.3µs) lands the drain
+		// on a batch boundary, displacing a fused 8-wide pass plus a trailing
+		// pair or quad (a small win exact — ~0.2-0.4µs — and a larger one
+		// ragged, where the trailing chunks would otherwise drag the partial
+		// into a 5-plus-lane masked finalize pass).
+		if chunks > availableLanes {
+			switch chunks % availableLanes {
+			case 2:
+				return 2
+			case 4:
+				return 4
+			}
+		}
 		if chunks <= availableLanes || chunks%availableLanes != 1 || tail >= rate {
 			return min(chunks, availableLanes)
 		}

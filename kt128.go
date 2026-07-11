@@ -68,6 +68,7 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	}
 
 	n := len(p)
+	fusedS0 := false
 
 	if h.state == stateSingle {
 		// Fused fast path: with S_0 and at least one full leaf contiguous in
@@ -89,6 +90,7 @@ func (h *Hasher) Write(p []byte) (int, error) {
 			// The rest of p is ordinary leaf data — or, with a pending
 			// leaf, its ragged remnant, buffered by extendPending below.
 			p = p[nFuse*BlockSize+h.pendingLen:]
+			fusedS0 = true
 		} else {
 			// Single-node finalization and tree-mode S_0 absorb the first
 			// chunk into the final node identically, so message bytes are
@@ -113,6 +115,19 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		if p = h.extendPending(p); len(p) == 0 {
 			return n, nil
 		}
+	}
+
+	// A fused first write's chunk-aligned tail drains in place as well: the
+	// fused pass makes this bulk traffic ending on a chunk boundary — the
+	// same shape the direct path drains in place — but the leftover may sit
+	// below the flush-unit gate, and streaming it costs up to seven chunks of
+	// memcpy plus an allocation for the same narrow pass at finalization
+	// (+11..38% at 80..120 KiB one-shots, Emerald Rapids). A ragged tail
+	// still buffers whole so its trailing chunks can ride a fused pass with
+	// the partial at finalization.
+	if r := len(p) / BlockSize; fusedS0 && r >= 2 && len(p) == r*BlockSize {
+		h.processLeafBatch(p, r)
+		return n, nil
 	}
 
 	lanes := streamChunks
