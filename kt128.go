@@ -31,15 +31,15 @@ const (
 
 // Hasher is an incremental KT128 instance.
 type Hasher struct {
-	buf        []byte // buffered leaf data (tree mode only)
-	c          []byte // owned copy of the customization string
-	final      sponge // final-node sponge state
-	pending    sponge // partially-absorbed trailing leaf from a fused first write
-	pos        uint64 // total bytes written via Write
-	leafCount  uint64 // total leaf CVs written to final so far
-	pendingLen int    // bytes absorbed into pending; 0 = no pending leaf
-	state      uint8  // lifecycle: stateSingle -> stateTree -> stateFinalized
-	ds         byte   // KT128 customization byte for finalization (singleDS or treeDS)
+	buf        []byte       // buffered leaf data (tree mode only)
+	c          []byte       // owned copy of the customization string
+	final      sponge       // final-node sponge state
+	pending    pendingState // partially-absorbed trailing leaf from a fused first write
+	pos        uint64       // total bytes written via Write
+	leafCount  uint64       // total leaf CVs written to final so far
+	pendingLen int          // bytes absorbed into pending; 0 = no pending leaf
+	state      uint8        // lifecycle: stateSingle -> stateTree -> stateFinalized
+	ds         byte         // KT128 customization byte for finalization (singleDS or treeDS)
 }
 
 // New returns a new Hasher with the given customization string. The Hasher
@@ -391,7 +391,7 @@ func (h *Hasher) startTreeMode() {
 func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 	var cvs [256]byte
 	if tailBlocks > 0 {
-		if !processS0LeavesTailArch(p, n, tailBlocks, &h.final, &h.pending, &cvs) {
+		if !processS0LeavesTailArch(p, n, tailBlocks, &h.final, pendingSponge(&h.pending), &cvs) {
 			return false
 		}
 		h.pendingLen = tailBlocks * rate
@@ -413,15 +413,16 @@ func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 // Returns the unconsumed rest of p; if the leaf remains incomplete, p is
 // buffered as more of its remnant and the result is empty.
 func (h *Hasher) extendPending(p []byte) []byte {
+	pending := pendingSponge(&h.pending)
 	room := BlockSize - h.pendingLen - len(h.buf)
 	if len(p) < room {
 		h.bufferTail(p)
 		return nil
 	}
-	h.pending.absorb(h.buf)
-	h.pending.absorb(p[:room])
-	h.pending.padPermute(leafDS)
-	h.final.absorbCV(&h.pending)
+	pending.absorb(h.buf)
+	pending.absorb(p[:room])
+	pending.padPermute(leafDS)
+	h.final.absorbCV(pending)
 	h.leafCount++
 	h.pendingLen = 0
 	h.buf = h.buf[:0]
@@ -457,13 +458,14 @@ func (h *Hasher) absorbMessage(suffix []byte) {
 	// logical data is its ragged remnant (all of buf) followed by the
 	// suffix, absorbed straight into the exported leaf state.
 	if h.pendingLen > 0 {
-		h.pending.absorb(buf)
+		pending := pendingSponge(&h.pending)
+		pending.absorb(buf)
 		// The pending leaf takes as much of the suffix as fits; any
 		// remainder forms the last leaves.
 		n := min(BlockSize-h.pendingLen-len(buf), len(suffix))
-		h.pending.absorb(suffix[:n])
-		h.pending.padPermute(leafDS)
-		h.final.absorbCV(&h.pending)
+		pending.absorb(suffix[:n])
+		pending.padPermute(leafDS)
+		h.final.absorbCV(pending)
 		h.leafCount++
 		h.absorbContiguousLeaves(suffix[n:])
 	} else {
