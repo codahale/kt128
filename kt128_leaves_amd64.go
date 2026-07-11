@@ -219,6 +219,8 @@ func processLeavesArch(input []byte, cvs *[256]byte) bool {
 
 func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
 
+func processLeavesTripleArch(_ []byte, _ *[256]byte) bool { return false }
+
 // processLeavesPairArch computes 2 leaf CVs from 2 contiguous chunks via a
 // single 2-wide XMM pass, reading directly from the input with plain loads.
 func processLeavesPairArch(input []byte, cvs *[256]byte) bool {

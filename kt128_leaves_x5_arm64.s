@@ -1,4 +1,4 @@
-// Hybrid scalar/NEON 5-leaf kernel — ARM64.
+// Hybrid scalar/NEON 5- and 3-leaf kernels — ARM64.
 //
 // Processes 5 × 8192-byte chunks per call: chunks 0-3 as two sequential
 // 2-wide NEON pair passes and chunk 4 on the scalar pipes, woven into the
@@ -157,6 +157,16 @@
 	KECCAK_ROUND; \
 	SROUND($0x8000000080008008)
 
+// Scalar-only completion used by the x3 hybrid after its single NEON pair
+// pass ends halfway through a scalar permutation.
+#define SCALAR_ROUNDS_B_ONLY \
+	SROUND($0x000000000000800A); \
+	SROUND($0x800000008000000A); \
+	SROUND($0x8000000080008081); \
+	SROUND($0x8000000000008080); \
+	SROUND($0x0000000080000001); \
+	SROUND($0x8000000080008008)
+
 // EXTRACT_CVS_X5 writes lanes 0-3 of both NEON instances to the CV buffer at
 // R22 (64 bytes): instance 0 from the low halves, instance 1 from the high.
 #define EXTRACT_CVS_X5 \
@@ -313,4 +323,105 @@ x5_pass2_loop:
 	WEAVE_B
 
 	X5_EPILOGUE
+	RET
+
+// func processLeaves3ARM64(pairInput, scalarInput *byte, cvs *byte, state *uint64)
+//
+// Processes pairInput as one x2 NEON pair while scalarInput advances on the
+// scalar pipes. The pair's 49 iterations host 24.5 scalar permutations; the
+// exported scalar state has absorbed 25 complete rate blocks.
+TEXT ·processLeaves3ARM64(SB), NOSPLIT, $104-32
+	MOVD	pairInput+0(FP), R22
+	MOVD	scalarInput+8(FP), R23
+	MOVD	R23, 72(RSP)
+	MOVD	cvs+16(FP), R23
+	MOVD	R23, 96(RSP)
+	MOVD	state+24(FP), R23
+	MOVD	R23, 80(RSP)
+	ADD	$8192, R22, R23		// NEON pair walkers
+	STP	(R22, R23), 0(RSP)
+
+	// Zero the scalar state: register lanes and spilled lanes.
+	MOVD	ZR, R0
+	MOVD	ZR, R2
+	MOVD	ZR, R3
+	MOVD	ZR, R4
+	MOVD	ZR, R5
+	MOVD	ZR, R6
+	MOVD	ZR, R7
+	MOVD	ZR, R8
+	MOVD	ZR, R9
+	MOVD	ZR, R10
+	MOVD	ZR, R11
+	MOVD	ZR, R12
+	MOVD	ZR, R13
+	MOVD	ZR, R14
+	MOVD	ZR, R15
+	MOVD	ZR, R16
+	MOVD	ZR, R17
+	MOVD	ZR, R19
+	MOVD	ZR, R20
+	MOVD	ZR, R21
+	MOVD	ZR, 32(RSP)
+	MOVD	ZR, 40(RSP)
+	MOVD	ZR, 48(RSP)
+	MOVD	ZR, 56(RSP)
+	MOVD	ZR, 64(RSP)
+
+	ZERO_NEON_STATE
+
+	// NEON iterations 1-48 complete pair blocks 1-48 and scalar blocks 1-24.
+	X5_COUNT(24)
+x3_pair_loop:
+	NEON_IO_MORE
+	SCALAR_IO_MORE
+	WEAVE_A
+	NEON_IO_MORE
+	WEAVE_B
+	X5_DEC_COUNT(x3_pair_loop)
+
+	// NEON iteration 49 closes the pair and advances scalar block 25 halfway.
+	NEON_IO_LAST
+	SCALAR_IO_MORE
+	WEAVE_A
+
+	// Finish scalar block 25. The remaining blocks use the optimized x1 loop.
+	SCALAR_ROUNDS_B_ONLY
+
+	// Export the scalar state after 25 complete rate blocks.
+	MOVD	80(RSP), R22
+	MOVD	R0, 0(R22)
+	MOVD	64(RSP), R23
+	MOVD	R23, 8(R22)
+	MOVD	R2, 16(R22)
+	MOVD	R3, 24(R22)
+	MOVD	R4, 32(R22)
+	MOVD	R5, 40(R22)
+	MOVD	32(RSP), R23
+	MOVD	R23, 48(R22)
+	MOVD	R6, 56(R22)
+	MOVD	R7, 64(R22)
+	MOVD	R8, 72(R22)
+	MOVD	R9, 80(R22)
+	MOVD	40(RSP), R23
+	MOVD	R23, 88(R22)
+	MOVD	R10, 96(R22)
+	MOVD	R11, 104(R22)
+	MOVD	R12, 112(R22)
+	MOVD	R13, 120(R22)
+	MOVD	48(RSP), R23
+	MOVD	R23, 128(R22)
+	MOVD	R14, 136(R22)
+	MOVD	R15, 144(R22)
+	MOVD	R16, 152(R22)
+	MOVD	R17, 160(R22)
+	MOVD	56(RSP), R23
+	MOVD	R23, 168(R22)
+	MOVD	R19, 176(R22)
+	MOVD	R20, 184(R22)
+	MOVD	R21, 192(R22)
+
+	// Extract the completed pair CVs.
+	MOVD	96(RSP), R22
+	EXTRACT_CVS_X5
 	RET

@@ -229,9 +229,10 @@ func (h *Hasher) growBuf(need int) {
 // stage is gated by the scheduling policy in the kt128_leaves_* arch files
 // (constants and fuse* functions), which record the measured tradeoffs:
 //
-//	batch5  parity-matched 5-chunk hybrid batches   arm64
+//	batch5  5-chunk hybrid batches                  arm64
 //	x8      whole 8-leaf batches                    amd64
-//	pair    2-wide remainders up to pairRemainderMax arm64 (any), amd64 (=2)
+//	x3      3-chunk hybrid remainder                arm64
+//	pair    2-wide remainders up to pairRemainderMax arm64 (remaining), amd64 (=2)
 //	run     3..4-leaf remainders in one YMM quad pass, amd64
 //	        5..7 in one masked 8-wide pass
 //	x1      whatever remains, serially              all
@@ -242,13 +243,12 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 
 	// Hybrid pass: drain leaves five at a time where a hybrid scalar/NEON
 	// kernel exists (arm64), covering four leaves at 2-wide NEON throughput
-	// with a fifth hidden on the scalar pipes. The batch count is
-	// parity-matched to nLeaves so the remainder stays even (up to 8): the
-	// pair loop drains it without a stranded serial leaf, which would cost
-	// the same NEON time as the extra hybrid batch saved.
+	// with a fifth hidden on the scalar pipes. A remainder of one gives back
+	// one batch so pairs drain six leaves without a stranded serial pass; a
+	// remainder of three stays available for the hybrid x3 kernel below.
 	if hasLeafBatch5 {
 		n5 := nLeaves / 5
-		if (nLeaves-n5*5)%2 != 0 {
+		if n5 > 0 && nLeaves-n5*5 == 1 {
 			n5--
 		}
 		for range n5 {
@@ -268,6 +268,13 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 		}
 		h.final.absorbCVs(cvs[:])
 		idx += 8
+	}
+
+	// A three-leaf remainder can use the arm64 hybrid x3 kernel: one scalar
+	// leaf advances alongside a NEON pair, then finishes after the pair closes.
+	if rem := nLeaves - idx; rem == 3 && processLeavesTripleArch(data[idx*BlockSize:nLeaves*BlockSize], &cvs) {
+		h.final.absorbCVs(cvs[:96])
+		idx += 3
 	}
 
 	// Drain a small leaf remainder in native 2-wide pairs where a pair kernel

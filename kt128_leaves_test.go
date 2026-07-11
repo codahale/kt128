@@ -132,6 +132,34 @@ func BenchmarkProcessLeavesBatch5(b *testing.B) {
 	}
 }
 
+func TestProcessLeavesTriple(t *testing.T) {
+	input := make([]byte, 3*BlockSize)
+	for i := range input {
+		input[i] = byte(i*41 + i>>7)
+	}
+
+	var got [256]byte
+	if !processLeavesTripleArch(input, &got) {
+		t.Skip("no x3 kernel on this platform")
+	}
+	checkLeafCVs(t, "", input, got[:], 3)
+}
+
+func BenchmarkProcessLeavesTriple(b *testing.B) {
+	input := make([]byte, 3*BlockSize)
+	for i := range input {
+		input[i] = byte(i)
+	}
+	var cvs [256]byte
+	if !processLeavesTripleArch(input, &cvs) {
+		b.Skip("no x3 kernel on this platform")
+	}
+	b.SetBytes(3 * BlockSize)
+	for b.Loop() {
+		processLeavesTripleArch(input, &cvs)
+	}
+}
+
 // TestProcessLeavesTail checks the trailing-leaves+partial kernel against the
 // x1 leaf path across lane counts and head lengths spanning rate-block
 // boundaries. arm64 hosts exactly n == 1; AVX-512 hosts n in 1..7.
@@ -184,6 +212,8 @@ func TestPartialLeafFusionSizes(t *testing.T) {
 	for _, custom := range [][]byte{nil, []byte("domain")} {
 		for _, size := range []int{
 			3*BlockSize + 1, 3*BlockSize + BlockSize/2, 4*BlockSize - 1, 4 * BlockSize,
+			3*BlockSize + 32*rate - 1, 3*BlockSize + 32*rate,
+			5*BlockSize + 32*rate - 1, 5*BlockSize + 32*rate,
 			4*BlockSize + BlockSize/2, 5*BlockSize + BlockSize/2,
 			7*BlockSize + BlockSize/2, 8 * BlockSize, 8*BlockSize + 1,
 			// Finalization remainders of 1..7 complete leaves plus a partial
@@ -363,7 +393,7 @@ func TestProcessLeavesRun(t *testing.T) {
 // BenchmarkLeafBatchRemainder measures processLeafBatch for the leftover-leaf
 // counts that hit the remainder path during finalization.
 func BenchmarkLeafBatchRemainder(b *testing.B) {
-	for _, n := range []int{5, 6, 7} {
+	for _, n := range []int{3, 5, 6, 7, 8, 13} {
 		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
 			input := make([]byte, n*BlockSize)
 			for i := range input {

@@ -8,9 +8,8 @@ import "unsafe"
 //
 // arm64 leans on narrow NEON kernels: the bulk path is the 5-chunk hybrid
 // scalar/NEON batch (four leaves at 2-wide NEON throughput plus a fifth on
-// the scalar pipes), with x2 pairs draining every remainder. There is no
-// dedicated x8 kernel — it was four sequential pair passes in one call, so
-// pairs cover its case at the same cost.
+// the scalar pipes), with an x3 hybrid and x2 pairs draining remainders. There
+// is no dedicated x8 kernel — it was four sequential pair passes in one call.
 
 const availableLanes = 8
 
@@ -20,13 +19,13 @@ const availableLanes = 8
 func flushChunks() int { return 2 }
 
 // directFlushChunks returns the complete-chunk prefix to process from a direct
-// write. Odd counts ending in 5, 7, or 9 use one 5-chunk hybrid batch plus
-// pairs more cheaply than flushing the even prefix and eventually processing
-// the stranded leaf serially. Other odd counts retain that leaf so a later
-// write can complete a faster batch.
+// write. Odd counts ending in 3, 5, 7, or 9 use hybrid batches plus pairs more
+// cheaply than flushing the even prefix and eventually processing the stranded
+// leaf serially. Counts ending in one retain that leaf so a later write can
+// complete a faster batch.
 func directFlushChunks(n int) int {
 	switch n % 10 {
-	case 5, 7, 9:
+	case 3, 5, 7, 9:
 		return n
 	default:
 		return n &^ 1
@@ -55,18 +54,22 @@ const hasLeafX8 = false
 // 5-chunk hybrid scalar/NEON batches.
 const hasLeafBatch5 = true
 
-// pairRemainderMax bounds the leaf counts the pair loop may drain; the pair
-// kernel is the fastest narrow option at any remainder on arm64.
+// pairRemainderMax bounds the leaf counts the pair loop may drain after the x3
+// hybrid has handled a three-leaf remainder.
 const pairRemainderMax = availableLanes
 
 // fuseS0Chunks returns how many chunks (S_0 plus leaves) the fused kernel
 // should consume from a first write containing the given number of full
-// chunks, or 0 to skip fusion. The x2 pair kernel always takes two; fusion is
-// skipped when the leaves after S_0 form whole SIMD-width batches, since
+// chunks, or 0 to skip fusion. Three nearly chunk-aligned inputs use the x3
+// hybrid for S_0 plus two leaves; other fused passes use the x2 pair. Fusion
+// is skipped when the leaves after S_0 form whole SIMD-width batches, since
 // consuming one would strand lanes-1 of them in the buffer instead of
 // flushing them all directly (measured +2.4% and an 8 KiB allocation at
 // 72 KiB).
-func fuseS0Chunks(chunks, _ int) int {
+func fuseS0Chunks(chunks, tail int) int {
+	if chunks == 3 && tail < tripleSerialTailBlocks*rate {
+		return 3
+	}
 	leaves := chunks - 1
 	if leaves >= 1 && (leaves < availableLanes || leaves%availableLanes != 0) {
 		return 2
@@ -77,20 +80,28 @@ func fuseS0Chunks(chunks, _ int) int {
 // fuseTailChunks returns how many trailing complete leaves finalization
 // should fold into one pass with the partial leaf's whole rate-blocks, or 0
 // to keep the serial path. The arm64 pair kernel hosts exactly one complete
-// leaf, and pairing pays only where the batch would otherwise strand it in a
-// serial x1 pass: counts 1 and 3 (every other count drains through the
-// batch5 and pair kernels).
-func fuseTailChunks(nFull, _ int) int {
-	if nFull == 1 || nFull == 3 {
+// leaf. A single complete leaf always pairs with the tail. Three complete
+// leaves use x3 plus a serial short tail, switching to pair-plus-pair only once
+// the tail is long enough to hide meaningful work in the second pair lane.
+func fuseTailChunks(nFull, nShared int) int {
+	if nFull == 1 || (nFull == 3 && nShared >= tripleSerialTailBlocks) {
 		return 1
 	}
 	return 0
 }
 
+// tripleSerialTailBlocks is the partial-leaf length where an x3 hybrid plus
+// serial x1 tail crosses the cost of two pair passes. Below 32 rate blocks the
+// x3 route wins; at and above it, the complete leaf and tail share a pair.
+const tripleSerialTailBlocks = 32
+
 // ─── Kernels ───
 
 //go:noescape
 func processLeaves5ARM64(input *byte, cvs *byte)
+
+//go:noescape
+func processLeaves3ARM64(pairInput, scalarInput *byte, cvs *byte, state *uint64)
 
 //go:noescape
 func processLeavesPairARM64(input *byte, cvs *byte)
@@ -115,6 +126,16 @@ func processLeavesBatch5Arch(input []byte, cvs *[256]byte) bool {
 	return true
 }
 
+// processLeavesTripleArch computes 3 leaf CVs by weaving one scalar leaf into
+// a 2-wide NEON pair and finishing its remaining half after the pair closes.
+func processLeavesTripleArch(input []byte, cvs *[256]byte) bool {
+	var scalar sponge
+	processLeaves3ARM64(unsafe.SliceData(input), unsafe.SliceData(input[2*BlockSize:]), &cvs[0], &scalar.a[0])
+	scalar.absorbAll(input[2*BlockSize+25*rate:], leafDS)
+	scalar.squeeze(cvs[64:96])
+	return true
+}
+
 // processLeavesPairArch computes 2 leaf CVs from 2 contiguous chunks via a
 // single x2 NEON pair, reading directly from the input with no scratch buffer.
 func processLeavesPairArch(input []byte, cvs *[256]byte) bool {
@@ -127,11 +148,15 @@ func processLeavesPairArch(input []byte, cvs *[256]byte) bool {
 func processLeavesRunArch(_ []byte, _ int, _ *[256]byte) bool { return false }
 
 // processS0LeavesArch fuses the final node's absorption of S_0 || kt12 marker
-// with leaf compression in one x2 NEON pass. arm64 supports exactly n == 2:
-// input must be 2*BlockSize contiguous bytes (S_0 then the first leaf) and
-// final must be a zero sponge. On return, final holds the state after
-// S_0 || marker and cvs[32:64] the leaf's chain value.
+// with leaf compression. Two chunks use the x2 NEON pair; three use the x3
+// hybrid with S_0 on the scalar lane. final must be a zero sponge.
 func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) bool {
+	if n == 3 {
+		processLeaves3ARM64(unsafe.SliceData(input[BlockSize:]), unsafe.SliceData(input), &cvs[32], &final.a[0])
+		final.absorb(input[25*rate : BlockSize])
+		final.absorb(kt12Marker[:])
+		return true
+	}
 	if n != 2 {
 		return false
 	}

@@ -46,6 +46,8 @@ func processLeavesArch(_ []byte, _ *[256]byte) bool { return false }
 
 func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
 
+func processLeavesTripleArch(_ []byte, _ *[256]byte) bool { return false }
+
 func processLeavesPairArch(_ []byte, _ *[256]byte) bool { return false }
 
 func processLeavesRunArch(_ []byte, _ int, _ *[256]byte) bool { return false }
