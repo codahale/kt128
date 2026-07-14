@@ -5,7 +5,7 @@
 //go:build !purego
 
 #include "textflag.h"
-#include "permute_arm64.h"
+#include "keccak_round_neon_x2_arm64.h"
 
 // ABSORB_STRIPE_X2 XORs one 168-byte stripe from two input pointers (IN0, IN1)
 // into state registers V0-V20 (21 rate lanes). Uses V25-V26 as temps.

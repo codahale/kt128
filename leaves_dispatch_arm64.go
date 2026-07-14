@@ -97,21 +97,6 @@ const tripleSerialTailBlocks = 32
 
 // ─── Kernels ───
 
-//go:noescape
-func processLeaves5ARM64(input *byte, cvs *byte)
-
-//go:noescape
-func processLeaves3ARM64(pairInput, scalarInput *byte, cvs *byte, state *uint64)
-
-//go:noescape
-func processLeavesPairARM64(input *byte, cvs *byte)
-
-//go:noescape
-func processS0LeafPairARM64(input *byte, state *uint64, cv *byte)
-
-//go:noescape
-func processLeafPairPartialARM64(in0, in1 *byte, nShared uint64, cv *byte, lane1 *uint64)
-
 // ─── Kernel wrappers ───
 
 // processLeavesArch reports that arm64 has no x8 kernel (see hasLeafX8).

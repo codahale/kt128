@@ -5,7 +5,7 @@
 //go:build !purego
 
 #include "textflag.h"
-#include "permute_arm64.h"
+#include "keccak_round_neon_x2_arm64.h"
 
 // func p1600(a *State1)
 TEXT ·p1600(SB), $200-8

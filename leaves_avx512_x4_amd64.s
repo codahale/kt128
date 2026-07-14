@@ -7,13 +7,13 @@
 // remainders, S_0 fusion for 3..4-chunk first writes, and small tail fusions —
 // where the 8-wide pass would run mostly empty; 2-lane shapes keep the XMM
 // pair (equal pass cost, no masking setup) and 5-plus-lane shapes the 8-wide
-// kernels. Structure mirrors kt128_leaves_amd64.s kernel-for-kernel: clamped
+// kernels. Structure mirrors leaves_avx_amd64.s kernel-for-kernel: clamped
 // gather indices steer dummy lanes to chunk 0 so they read in-bounds memory.
 
 //go:build !purego
 
 #include "textflag.h"
-#include "permute_amd64_x4.h"
+#include "keccak_round_avx512_x4_amd64.h"
 
 // ABSORB_LANE_X4_GATHER gathers one uint64 from 4 instances at the given byte
 // offset from BX (data base pointer) using Y28 as the index vector, and XORs

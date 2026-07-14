@@ -17,7 +17,7 @@
 // phases, touching only R22/R23 and the vector registers.
 //
 // Scalar state register map and SROUND/SCALAR_ABSORB_* macros: see
-// permute_scalar_arm64.h. The NEON pair I/O loads its two walking pointers
+// keccak_round_scalar_arm64.h. The NEON pair I/O loads its two walking pointers
 // from the frame each iteration (SROUND owns R22-R26 between blocks), and
 // unlike TurboSHAKE's 167-byte-rate cousins there is no partial lane: 168 is
 // 21 whole lanes and the final block is 16 whole lanes, so every load is an
@@ -25,14 +25,14 @@
 // ends.
 //
 // Frame: 0=src0, 8=src1 (NEON walkers), 32/40/48/56/64=spilled scalar lanes
-// (fixed by permute_scalar_arm64.h), 72=scalar src walker, 88=unit counter,
+// (fixed by keccak_round_scalar_arm64.h), 72=scalar src walker, 88=unit counter,
 // 96=cvs.
 
 //go:build !purego
 
 #include "textflag.h"
-#include "permute_arm64.h"
-#include "permute_scalar_arm64.h"
+#include "keccak_round_neon_x2_arm64.h"
+#include "keccak_round_scalar_arm64.h"
 
 // ABSORB_LANE_X5 XORs one 8-byte lane from each of the two NEON walking
 // pointers (R22, R23) into state register VK, packed {in0, in1}.

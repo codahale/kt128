@@ -1,4 +1,4 @@
-// Keccak-f[1600]×4 AVX2 macros shared between permute_amd64.s and helpers_amd64.s.
+// Keccak-f[1600]×4 AVX2 macros shared by the amd64 leaf kernels.
 //
 // Register conventions:
 //   R8   = source buffer pointer (read)

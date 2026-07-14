@@ -5,9 +5,9 @@
 //go:build !purego
 
 #include "textflag.h"
-#include "permute_amd64_gp.h"
-#include "permute_amd64_avx2.h"
-#include "permute_amd64_avx512.h"
+#include "keccak_round_scalar_amd64.h"
+#include "keccak_round_avx2_x4_amd64.h"
+#include "keccak_round_avx512_x8_amd64.h"
 
 // func fastLoopAbsorb168x1(s *State1, in *byte, n int)
 //

@@ -8,7 +8,7 @@
 //go:build !purego
 
 #include "textflag.h"
-#include "permute_amd64_x2.h"
+#include "keccak_round_avx512_x2_amd64.h"
 
 // ABSORB_LANE_X2 loads one uint64 from each chunk pointer (SI, DX) at the
 // given byte offset, packs them {chunk0, chunk1}, and XORs into Xlane.

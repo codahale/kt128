@@ -1,5 +1,5 @@
 // Keccak-f[1600] GP (general-purpose register) round macro.
-// Shared between permute_amd64.s and helpers_amd64.s.
+// Shared by the scalar permutation and fused absorb implementations.
 //
 // Register conventions (set up by caller):
 //   S  = source state pointer (read)

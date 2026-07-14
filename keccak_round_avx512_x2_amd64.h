@@ -4,7 +4,7 @@
 // kernel's, so this requires AVX-512F+VL (implied by the package's HasAVX512
 // gate). R11 must point to the round constant table.
 //
-// KEEP IN SYNC with the X8_* macros in permute_amd64_avx512.h: the Go asm
+// KEEP IN SYNC with the X8_* macros in keccak_round_avx512_x8_amd64.h: the Go asm
 // preprocessor cannot parameterize the register class, so the two are
 // parallel transcriptions of the same schedule (register-for-register,
 // Z<n> ↔ X<n>).

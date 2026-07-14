@@ -3,12 +3,12 @@
 // Each kernel processes two 8192-byte chunks packed into the 128-bit NEON
 // registers, producing chain values (or the fused S_0 state) without
 // materializing intermediate state. Larger batches ride the hybrid
-// scalar/NEON x5 kernel (kt128_leaves_x5_arm64.s) or chains of pairs.
+// scalar/NEON x5 kernel (leaves_neon_x5_arm64.s) or chains of pairs.
 
 //go:build !purego
 
 #include "textflag.h"
-#include "permute_arm64.h"
+#include "keccak_round_neon_x2_arm64.h"
 
 // ABSORB_STRIPE_X2 XORs one 168-byte stripe from two input pointers (IN0, IN1)
 // into state registers V0-V20 (21 rate lanes). Uses V25-V26 as temps.
