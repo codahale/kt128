@@ -123,7 +123,7 @@ func TestGuardPageArmed(t *testing.T) {
 func TestLeafKernelsNoReadOverrun(t *testing.T) {
 	t.Run("native", func(t *testing.T) { runLeafKernels(t) })
 
-	if cpuid.HasAVX512 {
+	if cpuid.HasAVX512 && cpuid.HasAVX2 {
 		defer func() { cpuid.HasAVX512 = true }()
 		cpuid.HasAVX512 = false
 		t.Run("avx2", func(t *testing.T) { runLeafKernels(t) })

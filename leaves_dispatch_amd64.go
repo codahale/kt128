@@ -16,11 +16,12 @@ import (
 // costs ~0.70 of a masked 8-wide pass), 5..7-leaf remainders as flat masked
 // 8-wide passes, and 2-lane shapes as 2-wide XMM pairs (equal pass cost to
 // the quad, no masking setup; XMM and YMM passes measure identical, so
-// nothing narrower than the quad is ever cheaper). Without AVX-512 the AVX2
-// x8 and quad kernels cover the batch and remainder paths at 4-wide, S_0 and
-// tail fusion ride quad variants (up to four chunks per fused pass), and the
-// pair kernel reports unavailable — without VPROLQ/VPTERNLOGQ a narrow pass
-// cannot beat the quad's flat cost.
+// nothing narrower than the quad is ever cheaper). Without AVX-512, when AVX2
+// is available, the x8 and quad kernels cover the batch and remainder paths at
+// 4-wide, S_0 and tail fusion ride quad variants (up to four chunks per fused
+// pass), and the pair kernel reports unavailable — without VPROLQ/VPTERNLOGQ a
+// narrow pass cannot beat the quad's flat cost. CPUs without either ISA use the
+// generic single-leaf path.
 
 const availableLanes = 8
 
@@ -33,7 +34,10 @@ func flushChunks() int {
 	if cpuid.HasAVX512 {
 		return availableLanes
 	}
-	return 4
+	if cpuid.HasAVX2 {
+		return 4
+	}
+	return 1
 }
 
 // directFlushChunks returns the largest whole direct-flush unit in n.
@@ -42,9 +46,14 @@ func directFlushChunks(n int) int {
 	return n - n%flush
 }
 
-// streamChunks is the streaming-path flush unit; amd64 has no hybrid batch
-// kernel, so it is the SIMD width.
-const streamChunks = availableLanes
+// streamChunks is the streaming-path flush unit. SIMD-capable amd64 uses the
+// full width; the generic fallback flushes one leaf at a time.
+var streamChunks = func() int {
+	if cpuid.HasAVX512 || cpuid.HasAVX2 {
+		return availableLanes
+	}
+	return 1
+}()
 
 // growJumpMin is the buffered byte count at which a regrowing leaf buffer
 // jumps straight to the streaming high-water mark instead of letting append
@@ -54,11 +63,16 @@ const streamChunks = availableLanes
 // only pay for zeroing it. Four chunks is past every shape that stops short
 // (a 32 KiB stream peaks at three buffered chunks) while keeping most of
 // the large-stream win (-4.7% at 64 KiB).
-const growJumpMin = 4 * BlockSize
+var growJumpMin = func() int {
+	if cpuid.HasAVX512 || cpuid.HasAVX2 {
+		return 4 * BlockSize
+	}
+	return 0
+}()
 
-// hasLeafX8 reports that amd64 drains whole 8-leaf batches through a
-// dedicated 8-wide kernel.
-const hasLeafX8 = true
+// hasLeafX8 reports whether amd64 can drain whole 8-leaf batches through a
+// dedicated SIMD kernel.
+var hasLeafX8 = cpuid.HasAVX512 || cpuid.HasAVX2
 
 // hasLeafBatch5 reports that amd64 has no hybrid scalar/SIMD batch kernel;
 // with 16 general-purpose registers a woven scalar lane would spill heavily.
@@ -105,6 +119,9 @@ func fuseS0Chunks(chunks, tail int) int {
 		}
 		return 0
 	}
+	if !cpuid.HasAVX2 {
+		return 0
+	}
 	// AVX2: the quad hosts S_0 plus up to three leaves, saving the serial
 	// S_0 pass. Exactly two chunks always fuse: there are no leftovers, and
 	// the quad beats the serial S_0-plus-x1 pair it replaces (measured +11.7%
@@ -140,6 +157,9 @@ func fuseTailChunks(nFull, nShared int) int {
 	if cpuid.HasAVX512 {
 		return nFull % 8
 	}
+	if !cpuid.HasAVX2 {
+		return 0
+	}
 	// AVX2: the tail rides a 1..3-leaf remainder in a quad; a leading
 	// multiple of four drains through the batch and quad run kernels. A bare
 	// single trailing leaf stays serial: with no narrow kernel the tail
@@ -160,10 +180,13 @@ func fuseTailChunks(nFull, nShared int) int {
 func processLeavesArch(input []byte, cvs *[256]byte) bool {
 	if cpuid.HasAVX512 {
 		processLeavesAVX512(unsafe.SliceData(input), &cvs[0])
-	} else {
-		processLeavesAVX2(unsafe.SliceData(input), &cvs[0])
+		return true
 	}
-	return true
+	if cpuid.HasAVX2 {
+		processLeavesAVX2(unsafe.SliceData(input), &cvs[0])
+		return true
+	}
+	return false
 }
 
 func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
@@ -193,6 +216,9 @@ func processLeavesRunArch(data []byte, n int, cvs *[256]byte) bool {
 			processLeavesRunAVX512(unsafe.SliceData(data), &cvs[0], uint64(n))
 		}
 		return true
+	}
+	if !cpuid.HasAVX2 {
+		return false
 	}
 
 	// AVX2: run x4 passes, pointing dummy lanes at an in-bounds chunk. The first
@@ -225,17 +251,22 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 	switch {
 	case n < 2:
 		return false
-	case !cpuid.HasAVX512:
+	case cpuid.HasAVX512:
+		switch {
+		case n == 2:
+			processS0LeafPairAVX512(unsafe.SliceData(input), &final.a[0], &cvs[32])
+		case n <= 4:
+			processS0LeavesQuadAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
+		case n <= 8:
+			processS0LeavesAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
+		default:
+			return false
+		}
+	case cpuid.HasAVX2:
 		if n > 4 {
 			return false
 		}
 		processS0LeavesQuadAVX2(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
-	case n == 2:
-		processS0LeafPairAVX512(unsafe.SliceData(input), &final.a[0], &cvs[32])
-	case n <= 4:
-		processS0LeavesQuadAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
-	case n <= 8:
-		processS0LeavesAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
 	default:
 		return false
 	}
@@ -256,15 +287,19 @@ func processS0LeavesTailArch(input []byte, n, nShared int, final, pending *spong
 	switch {
 	case n < 2:
 		return false
-	case !cpuid.HasAVX512:
+	case cpuid.HasAVX512:
+		if n <= 3 {
+			processS0LeavesQuadTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
+		} else if n <= 7 {
+			processS0LeavesTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
+		} else {
+			return false
+		}
+	case cpuid.HasAVX2:
 		if n > 3 {
 			return false
 		}
 		processS0LeavesQuadTailAVX2(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
-	case n <= 3:
-		processS0LeavesQuadTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
-	case n <= 7:
-		processS0LeavesTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
 	default:
 		return false
 	}
@@ -287,19 +322,22 @@ func processS0LeavesTailArch(input []byte, n, nShared int, final, pending *spong
 // rides the quad at two chunks, so the tail's blocks always ride free.
 func fuseS0TailBlocks(chunks, tail int) int {
 	n := tail / rate
-	if !cpuid.HasAVX512 {
+	if cpuid.HasAVX512 {
+		if chunks < 2 || chunks > 7 {
+			return 0
+		}
+		if chunks == 2 && n < s0TailPairMin {
+			return 0
+		}
+		return n
+	}
+	if cpuid.HasAVX2 {
 		if chunks < 2 || chunks > 3 {
 			return 0
 		}
 		return n
 	}
-	if chunks < 2 || chunks > 7 {
-		return 0
-	}
-	if chunks == 2 && n < s0TailPairMin {
-		return 0
-	}
-	return n
+	return 0
 }
 
 // s0TailPairMin is the tail size, in whole rate-blocks, at which a two-chunk
@@ -317,20 +355,23 @@ const s0TailPairMin = 7
 // partial leaf's ragged tail and padding through the sponge. trailing must
 // hold the n complete chunks followed contiguously by the partial head.
 func processLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, partial *sponge) bool {
-	if !cpuid.HasAVX512 {
+	if cpuid.HasAVX512 {
+		switch {
+		case n == 1:
+			processLeafPairPartialAVX512(unsafe.SliceData(trailing), unsafe.SliceData(trailing[BlockSize:]), uint64(nShared), &cvs[0], &partial.a[0])
+		case n <= 3:
+			processLeavesQuadPartialAVX512(unsafe.SliceData(trailing), &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
+		default:
+			processLeavesRunPartialAVX512(unsafe.SliceData(trailing), &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
+		}
+		return true
+	}
+	if cpuid.HasAVX2 {
 		if n < 1 || n > 3 {
 			return false
 		}
 		processLeavesQuadTailAVX2(unsafe.SliceData(trailing), &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
 		return true
 	}
-	switch {
-	case n == 1:
-		processLeafPairPartialAVX512(unsafe.SliceData(trailing), unsafe.SliceData(trailing[BlockSize:]), uint64(nShared), &cvs[0], &partial.a[0])
-	case n <= 3:
-		processLeavesQuadPartialAVX512(unsafe.SliceData(trailing), &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
-	default:
-		processLeavesRunPartialAVX512(unsafe.SliceData(trailing), &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
-	}
-	return true
+	return false
 }

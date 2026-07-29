@@ -2,6 +2,4 @@
 
 package cpuid
 
-func hasAVX512VL() bool
-
 var HasAVX512 = hasAVX512VL()

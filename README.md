@@ -67,7 +67,8 @@ Once the input (the message plus the customization string and its length encodin
 implementation switches to tree hashing. Leaf compression is processed in parallel:
 
 - `amd64`: 8-wide AVX-512 kernels for whole batches and masked remainders, with 2-wide AVX-512VL kernels where only
-  two lanes are live; AVX2 kernels otherwise (use the `kt128_disable_avx512` build tag to disable AVX-512)
+  two lanes are live; AVX2 kernels when AVX-512 is unavailable; generic kernels when neither ISA is available (use
+  the `kt128_disable_avx512` build tag to disable AVX-512)
 - `arm64`: a hybrid scalar/NEON kernel that compresses five chunks per pass — four on the NEON unit and a fifth
   woven onto the otherwise-idle scalar pipes — with 2-wide NEON kernels draining remainders
 - other targets or `purego`: scalar fallback

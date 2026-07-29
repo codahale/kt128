@@ -10,29 +10,36 @@ import (
 )
 
 // TestExpectedISA asserts that the SIMD path selected at runtime matches the one
-// the environment intends to exercise. CI sets KT128_EXPECT_AVX512 to "1" (the
-// SDE Skylake-X job, AVX-512) or "0" (the SDE Haswell job and the
-// kt128_disable_avx512 build, AVX2 only). Without this, an SDE misconfiguration,
-// a CPUID-detection bug, or a build-tag regression that lets real detection leak
-// into the disabled build would pass while silently running the wrong kernels —
-// a green check that tested nothing. Unset or empty (local runs, the standard CI
-// job), it skips.
+// the environment intends to exercise. CI sets KT128_EXPECT_AVX512 and
+// KT128_EXPECT_AVX2 for its emulated CPUs and AVX-512-disabled build. Without
+// this, an SDE misconfiguration, a CPUID-detection bug, or a build-tag regression
+// could pass while silently running the wrong kernels. Unset or empty (local
+// runs and the standard CI job), each assertion is skipped.
 func TestExpectedISA(t *testing.T) {
-	want := os.Getenv("KT128_EXPECT_AVX512")
-	if want == "" {
-		t.Skip("KT128_EXPECT_AVX512 unset; skipping ISA dispatch assertion")
+	assertFeature := func(name, want string, got bool) {
+		t.Helper()
+		if want == "" {
+			return
+		}
+		switch want {
+		case "1":
+			if !got {
+				t.Fatalf("%s=1 but detected feature is false", name)
+			}
+		case "0":
+			if got {
+				t.Fatalf("%s=0 but detected feature is true", name)
+			}
+		default:
+			t.Fatalf("%s=%q: want \"0\" or \"1\"", name, want)
+		}
 	}
 
-	switch want {
-	case "1":
-		if !cpuid.HasAVX512 {
-			t.Fatal("KT128_EXPECT_AVX512=1 but cpuid.HasAVX512 is false: the AVX-512 kernels were not exercised")
-		}
-	case "0":
-		if cpuid.HasAVX512 {
-			t.Fatal("KT128_EXPECT_AVX512=0 but cpuid.HasAVX512 is true: the AVX2 path was not exercised")
-		}
-	default:
-		t.Fatalf("KT128_EXPECT_AVX512=%q: want \"0\" or \"1\"", want)
+	wantAVX512 := os.Getenv("KT128_EXPECT_AVX512")
+	wantAVX2 := os.Getenv("KT128_EXPECT_AVX2")
+	if wantAVX512 == "" && wantAVX2 == "" {
+		t.Skip("ISA expectations unset; skipping dispatch assertion")
 	}
+	assertFeature("KT128_EXPECT_AVX512", wantAVX512, cpuid.HasAVX512)
+	assertFeature("KT128_EXPECT_AVX2", wantAVX2, cpuid.HasAVX2)
 }

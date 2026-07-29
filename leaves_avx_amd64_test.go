@@ -13,6 +13,9 @@ import (
 // TestProcessLeavesRunAVX2 forces the AVX2 run path and checks every remainder
 
 func TestProcessLeavesRunAVX2(t *testing.T) {
+	if !cpuid.HasAVX2 {
+		t.Skip("no AVX2")
+	}
 	if !cpuid.HasAVX512 {
 		return // already exercised by TestProcessLeavesRun
 	}
@@ -92,6 +95,9 @@ func BenchmarkPairVsRun(b *testing.B) {
 func TestAVX2MatchesAVX512(t *testing.T) {
 	if !cpuid.HasAVX512 {
 		t.Skip("no AVX-512 available to compare against")
+	}
+	if !cpuid.HasAVX2 {
+		t.Skip("no AVX2 available to compare against")
 	}
 
 	// compare hashes msg with customization custom both ways — first AVX-512

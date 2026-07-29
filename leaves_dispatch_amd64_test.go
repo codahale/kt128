@@ -3,13 +3,53 @@
 package kt128
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
 	"github.com/codahale/kt128/internal/cpuid"
 )
 
+func TestWriteForceGenericFallback(t *testing.T) {
+	savedAVX512, savedAVX2 := cpuid.HasAVX512, cpuid.HasAVX2
+	savedStreamChunks, savedGrowJumpMin := streamChunks, growJumpMin
+	savedHasLeafX8 := hasLeafX8
+	defer func() {
+		cpuid.HasAVX512, cpuid.HasAVX2 = savedAVX512, savedAVX2
+		streamChunks, growJumpMin = savedStreamChunks, savedGrowJumpMin
+		hasLeafX8 = savedHasLeafX8
+	}()
+	cpuid.HasAVX512, cpuid.HasAVX2 = false, false
+	streamChunks, growJumpMin = 1, 0
+	hasLeafX8 = false
+
+	if got := flushChunks(); got != 1 {
+		t.Fatalf("flushChunks() = %d, want 1", got)
+	}
+
+	for _, size := range []int{
+		0, BlockSize, 2 * BlockSize, 9*BlockSize + 137, 1024 * 1024,
+	} {
+		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
+			msg := ptn(size)
+			h := New([]byte("generic-fallback"))
+			for off := 0; off < len(msg); off += 3333 {
+				_, _ = h.Write(msg[off:min(off+3333, len(msg))])
+			}
+			got := make([]byte, 64)
+			_, _ = h.Read(got)
+			want := referenceKT128(msg, []byte("generic-fallback"), len(got))
+			if !bytes.Equal(got, want) {
+				t.Fatalf("generic fallback output %x != reference %x", got, want)
+			}
+		})
+	}
+}
+
 func TestWriteForceAVX2DirectFlush(t *testing.T) {
+	if !cpuid.HasAVX2 {
+		t.Skip("no AVX2")
+	}
 	saved := cpuid.HasAVX512
 	defer func() { cpuid.HasAVX512 = saved }()
 	cpuid.HasAVX512 = false
@@ -97,6 +137,9 @@ func TestWriteS0TailFusion(t *testing.T) {
 // pending-continuation tests with the AVX2 quad kernels forced, so both
 // kernel families are exercised on an AVX-512 host.
 func TestS0TailFusionForceAVX2(t *testing.T) {
+	if !cpuid.HasAVX2 {
+		t.Skip("no AVX2")
+	}
 	if !cpuid.HasAVX512 {
 		t.Skip("AVX2 path already exercised natively")
 	}
@@ -111,6 +154,9 @@ func TestS0TailFusionForceAVX2(t *testing.T) {
 // whole rate-blocks in the quad's free lane unconditionally; four chunks
 // fill the quad and leave no lane.
 func TestWriteS0TailFusionAVX2(t *testing.T) {
+	if !cpuid.HasAVX2 {
+		t.Skip("no AVX2")
+	}
 	saved := cpuid.HasAVX512
 	defer func() { cpuid.HasAVX512 = saved }()
 	cpuid.HasAVX512 = false
@@ -155,6 +201,9 @@ func TestWriteS0TailFusionAVX2(t *testing.T) {
 // BenchmarkWriteForceAVX2 measures one-shot hashing with the AVX2 kernels forced
 // (HasAVX512 disabled), so the AVX2 remainder path is exercised on this host.
 func BenchmarkWriteForceAVX2(b *testing.B) {
+	if !cpuid.HasAVX2 {
+		b.Skip("no AVX2")
+	}
 	saved := cpuid.HasAVX512
 	defer func() { cpuid.HasAVX512 = saved }()
 	for _, size := range []int{32 * 1024, 64 * 1024, 256 * 1024, 1024 * 1024} {
