@@ -4,10 +4,52 @@ package kt128
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
+
+	"github.com/codahale/kt128/internal/cpuid"
 )
 
+func TestWriteForceGenericFallback(t *testing.T) {
+	savedSHA3 := cpuid.HasSHA3
+	savedStreamChunks, savedHasLeafBatch5 := streamChunks, hasLeafBatch5
+	defer func() {
+		cpuid.HasSHA3 = savedSHA3
+		streamChunks, hasLeafBatch5 = savedStreamChunks, savedHasLeafBatch5
+	}()
+	cpuid.HasSHA3 = false
+	streamChunks, hasLeafBatch5 = 1, false
+
+	if got := flushChunks(); got != 1 {
+		t.Fatalf("flushChunks() = %d, want 1", got)
+	}
+	if got := directFlushChunks(7); got != 7 {
+		t.Fatalf("directFlushChunks(7) = %d, want 7", got)
+	}
+
+	for _, size := range []int{
+		0, BlockSize, 2 * BlockSize, 9*BlockSize + 137, 1024 * 1024,
+	} {
+		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
+			msg := ptn(size)
+			h := New([]byte("generic-fallback"))
+			for off := 0; off < len(msg); off += 3333 {
+				_, _ = h.Write(msg[off:min(off+3333, len(msg))])
+			}
+			got := make([]byte, 64)
+			_, _ = h.Read(got)
+			want := referenceKT128(msg, []byte("generic-fallback"), len(got))
+			if !bytes.Equal(got, want) {
+				t.Fatalf("generic fallback output %x != reference %x", got, want)
+			}
+		})
+	}
+}
+
 func TestARM64DirectFlushChunks(t *testing.T) {
+	if !cpuid.HasSHA3 {
+		t.Skip("no SHA3 extension")
+	}
 	for n, want := range map[int]int{
 		2:  2,
 		3:  3,
@@ -26,6 +68,9 @@ func TestARM64DirectFlushChunks(t *testing.T) {
 }
 
 func TestARM64TripleTailScheduling(t *testing.T) {
+	if !cpuid.HasSHA3 {
+		t.Skip("no SHA3 extension")
+	}
 	if got := fuseS0Chunks(3, tripleSerialTailBlocks*rate-1); got != 3 {
 		t.Fatalf("fuseS0Chunks below crossover = %d, want 3", got)
 	}
@@ -41,6 +86,9 @@ func TestARM64TripleTailScheduling(t *testing.T) {
 }
 
 func TestARM64DirectWriteUsesBatch5(t *testing.T) {
+	if !cpuid.HasSHA3 {
+		t.Skip("no SHA3 extension")
+	}
 	msg := ptn(7 * BlockSize)
 	h := New(nil)
 	_, _ = h.Write(msg[:2*BlockSize])
@@ -61,6 +109,9 @@ func TestARM64DirectWriteUsesBatch5(t *testing.T) {
 }
 
 func BenchmarkARM64TripleVsPairScalar(b *testing.B) {
+	if !cpuid.HasSHA3 {
+		b.Skip("no SHA3 extension")
+	}
 	input := ptn(3 * BlockSize)
 	var cvs [256]byte
 

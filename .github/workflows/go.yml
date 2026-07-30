@@ -32,15 +32,18 @@ jobs:
         config:
         # "No AVX-512" disables that dispatch path at compile time while retaining
         # runtime AVX2 detection. The expectations confirm both decisions.
-        - { name: "Standard",   tags: "",                     flags: "-race", expect512: "",  expect2: "" }
-        - { name: "Pure Go",    tags: "purego",               flags: "",      expect512: "",  expect2: "" }
-        - { name: "No AVX-512", tags: "kt128_disable_avx512", flags: "-race", expect512: "0", expect2: "1" }
+        - { name: "Standard",   tags: "",                     flags: "-race", expect512: "",  expect2: "",  expectSHA3: "",  godebug: "" }
+        - { name: "Pure Go",    tags: "purego",               flags: "",      expect512: "",  expect2: "",  expectSHA3: "",  godebug: "" }
+        - { name: "No AVX-512", tags: "kt128_disable_avx512", flags: "-race", expect512: "0", expect2: "1", expectSHA3: "",  godebug: "" }
+        - { name: "No SHA3",    tags: "",                     flags: "-race", expect512: "",  expect2: "",  expectSHA3: "0", godebug: "cpu.sha3=off" }
         exclude:
-          # Pure Go and the amd64-only disable tag add nothing on arm64.
+          # Run the architecture-specific forced fallbacks only where relevant.
           - os: ubuntu-24.04-arm
-            config: { name: "Pure Go",    tags: "purego",               flags: "",      expect512: "",  expect2: "" }
+            config: { name: "Pure Go",    tags: "purego",               flags: "",      expect512: "",  expect2: "",  expectSHA3: "",  godebug: "" }
           - os: ubuntu-24.04-arm
-            config: { name: "No AVX-512", tags: "kt128_disable_avx512", flags: "-race", expect512: "0", expect2: "1" }
+            config: { name: "No AVX-512", tags: "kt128_disable_avx512", flags: "-race", expect512: "0", expect2: "1", expectSHA3: "",  godebug: "" }
+          - os: ubuntu-24.04
+            config: { name: "No SHA3",    tags: "",                     flags: "-race", expect512: "",  expect2: "",  expectSHA3: "0", godebug: "cpu.sha3=off" }
     runs-on: ${{ matrix.os }}
     steps:
     - name: Checkout
@@ -59,6 +62,8 @@ jobs:
       env:
         KT128_EXPECT_AVX512: ${{ matrix.config.expect512 }}
         KT128_EXPECT_AVX2: ${{ matrix.config.expect2 }}
+        KT128_EXPECT_SHA3: ${{ matrix.config.expectSHA3 }}
+        GODEBUG: ${{ matrix.config.godebug }}
       run: go test ${{ matrix.config.flags }} -tags "${{ matrix.config.tags }}" ./...
 
   sde:
@@ -193,7 +198,6 @@ jobs:
         go-version: 'stable'
         cache: true
 
-    # No third-party deps, so this mainly catches standard-library and toolchain
-    # vulnerabilities for the Go version in use.
+    # This mainly catches standard-library, toolchain, and x/sys vulnerabilities.
     - name: govulncheck
       run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

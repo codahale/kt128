@@ -4,6 +4,7 @@ package kt128
 
 import (
 	"fmt"
+	"runtime"
 	"runtime/debug"
 	"syscall"
 	"testing"
@@ -237,6 +238,9 @@ func runLeafKernels(t *testing.T) {
 	}
 
 	// Scalar fused absorb loop: reads exactly n bytes from its pointer.
+	if runtime.GOARCH == "arm64" && !cpuid.HasSHA3 {
+		return
+	}
 	const stripes = 48
 	var s sponge
 	buf := guardedBuffer(t, stripes*rate)

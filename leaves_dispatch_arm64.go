@@ -2,7 +2,11 @@
 
 package kt128
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/codahale/kt128/internal/cpuid"
+)
 
 // ─── Scheduling policy ───
 //
@@ -16,7 +20,12 @@ const availableLanes = 8
 // flushChunks is the smallest chunk count the direct fast path may flush
 // without meaningful throughput loss: the x2 pair kernel runs within ~5% of
 // the batch kernels per byte, so any even count is fine.
-func flushChunks() int { return 2 }
+func flushChunks() int {
+	if cpuid.HasSHA3 {
+		return 2
+	}
+	return 1
+}
 
 // directFlushChunks returns the complete-chunk prefix to process from a direct
 // write. Odd counts ending in 3, 5, 7, or 9 use hybrid batches plus pairs more
@@ -24,6 +33,9 @@ func flushChunks() int { return 2 }
 // leaf serially. Counts ending in one retain that leaf so a later write can
 // complete a faster batch.
 func directFlushChunks(n int) int {
+	if !cpuid.HasSHA3 {
+		return n
+	}
 	switch n % 10 {
 	case 3, 5, 7, 9:
 		return n
@@ -37,7 +49,12 @@ func directFlushChunks(n int) int {
 // pure-NEON pairs. A single batch flushes sooner than two — a 10-chunk unit
 // strands sub-10 messages in the buffer until finalization's pair-only drain
 // (measured +11.5% at 64 KiB streaming) — and caps the buffer at one batch.
-const streamChunks = 5
+var streamChunks = func() int {
+	if cpuid.HasSHA3 {
+		return 5
+	}
+	return 1
+}()
 
 // growJumpMin is the buffered byte count at which a regrowing leaf buffer
 // jumps straight to the streaming high-water mark instead of letting append
@@ -52,7 +69,7 @@ const hasLeafX8 = false
 
 // hasLeafBatch5 reports that this platform can drain complete leaves in
 // 5-chunk hybrid scalar/NEON batches.
-const hasLeafBatch5 = true
+var hasLeafBatch5 = cpuid.HasSHA3
 
 // pairRemainderMax bounds the leaf counts the pair loop may drain after the x3
 // hybrid has handled a three-leaf remainder.
@@ -67,6 +84,9 @@ const pairRemainderMax = availableLanes
 // flushing them all directly (measured +2.4% and an 8 KiB allocation at
 // 72 KiB).
 func fuseS0Chunks(chunks, tail int) int {
+	if !cpuid.HasSHA3 {
+		return 0
+	}
 	if chunks == 3 && tail < tripleSerialTailBlocks*rate {
 		return 3
 	}
@@ -84,6 +104,9 @@ func fuseS0Chunks(chunks, tail int) int {
 // leaves use x3 plus a serial short tail, switching to pair-plus-pair only once
 // the tail is long enough to hide meaningful work in the second pair lane.
 func fuseTailChunks(nFull, nShared int) int {
+	if !cpuid.HasSHA3 {
+		return 0
+	}
 	if nFull == 1 || (nFull == 3 && nShared >= tripleSerialTailBlocks) {
 		return 1
 	}
@@ -107,6 +130,9 @@ func processLeavesArch(_ []byte, _ *[256]byte) bool { return false }
 // on the scalar pipes, woven into the NEON round stream. Input must be
 // 5*BlockSize contiguous bytes; the CVs land in cvs[:160].
 func processLeavesBatch5Arch(input []byte, cvs *[256]byte) bool {
+	if !cpuid.HasSHA3 {
+		return false
+	}
 	processLeaves5ARM64(unsafe.SliceData(input), &cvs[0])
 	return true
 }
@@ -114,6 +140,9 @@ func processLeavesBatch5Arch(input []byte, cvs *[256]byte) bool {
 // processLeavesTripleArch computes 3 leaf CVs by weaving one scalar leaf into
 // a 2-wide NEON pair and finishing its remaining half after the pair closes.
 func processLeavesTripleArch(input []byte, cvs *[256]byte) bool {
+	if !cpuid.HasSHA3 {
+		return false
+	}
 	var scalar sponge
 	processLeaves3ARM64(unsafe.SliceData(input), unsafe.SliceData(input[2*BlockSize:]), &cvs[0], &scalar.a[0])
 	scalar.absorbAll(input[2*BlockSize+25*rate:], leafDS)
@@ -124,6 +153,9 @@ func processLeavesTripleArch(input []byte, cvs *[256]byte) bool {
 // processLeavesPairArch computes 2 leaf CVs from 2 contiguous chunks via a
 // single x2 NEON pair, reading directly from the input with no scratch buffer.
 func processLeavesPairArch(input []byte, cvs *[256]byte) bool {
+	if !cpuid.HasSHA3 {
+		return false
+	}
 	processLeavesPairARM64(unsafe.SliceData(input), &cvs[0])
 	return true
 }
@@ -136,6 +168,9 @@ func processLeavesRunArch(_ []byte, _ int, _ *[256]byte) bool { return false }
 // with leaf compression. Two chunks use the x2 NEON pair; three use the x3
 // hybrid with S_0 on the scalar lane. final must be a zero sponge.
 func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) bool {
+	if !cpuid.HasSHA3 {
+		return false
+	}
 	if n == 3 {
 		processLeaves3ARM64(unsafe.SliceData(input[BlockSize:]), unsafe.SliceData(input), &cvs[32], &final.a[0])
 		final.absorb(input[25*rate : BlockSize])
@@ -165,7 +200,7 @@ func fuseS0TailBlocks(_, _ int) int { return 0 }
 // complete chunk followed contiguously by the partial head; the pair kernel
 // hosts exactly one complete leaf (n == 1).
 func processLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, partial *sponge) bool {
-	if n != 1 {
+	if !cpuid.HasSHA3 || n != 1 {
 		return false
 	}
 	processLeafPairPartialARM64(unsafe.SliceData(trailing), unsafe.SliceData(trailing[BlockSize:]), uint64(nShared), &cvs[0], &partial.a[0])

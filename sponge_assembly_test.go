@@ -4,7 +4,10 @@ package kt128
 
 import (
 	"encoding/binary"
+	"runtime"
 	"testing"
+
+	"github.com/codahale/kt128/internal/cpuid"
 )
 
 // These fuzz targets pit the hand-written assembly single-lane primitives
@@ -129,6 +132,9 @@ func addPermuteSeeds(f *testing.F) {
 // FuzzP1600 fuzzes the scalar assembly Keccak-p[1600,12] against the pure-Go
 // reference.
 func FuzzP1600(f *testing.F) {
+	if runtime.GOARCH == "arm64" && !cpuid.HasSHA3 {
+		f.Skip("no SHA3 extension")
+	}
 	addPermuteSeeds(f)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		checkPermute(t, p1600, data)
@@ -138,6 +144,9 @@ func FuzzP1600(f *testing.F) {
 // FuzzFastLoopAbsorb168x1 fuzzes the scalar assembly absorb-permute loop against
 // the pure-Go reference, over arbitrary initial states and stripe counts.
 func FuzzFastLoopAbsorb168x1(f *testing.F) {
+	if runtime.GOARCH == "arm64" && !cpuid.HasSHA3 {
+		f.Skip("no SHA3 extension")
+	}
 	f.Add(make([]byte, stateBytes), make([]byte, rate))
 	f.Add(make([]byte, stateBytes), make([]byte, 48*rate))
 	f.Add(splitmixBytes(stateBytes, 3), splitmixBytes(7*rate, 4))

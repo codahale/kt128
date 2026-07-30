@@ -4,8 +4,9 @@
 // When the input (the message plus the customization string and its length
 // encoding) exceeds one 8192-byte chunk, it splits the input into chunks and
 // computes a leaf chain value from each. On amd64 and arm64 the leaves are
-// computed in parallel using SIMD-accelerated Keccak permutations; other
-// targets and the purego build use a scalar fallback.
+// computed in parallel using SIMD-accelerated Keccak permutations when the
+// required CPU features are available; other targets and the purego build use
+// a scalar fallback.
 package kt128
 
 import (
