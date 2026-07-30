@@ -3,21 +3,22 @@ name: Fuzz
 on:
   workflow_dispatch:
     inputs:
-      fuzztime:
-        description: 'How long to fuzz each target (Go duration, e.g. 10m, 1h).'
-        default: '10m'
-  # TODO Nightly fuzz jobs continue to fail with an internal Go error. Disable until 
-  # https://github.com/golang/go/issues/75804 is resolved.
-  # schedule:
+      fuzziterations:
+        description: 'How many fuzz inputs to execute per target.'
+        type: number
+        default: 100000
+  schedule:
     # Nightly at 04:17 UTC. Fuzzing is too slow to gate pushes and PRs; the seed
     # corpus still runs there as part of the normal test suite.
-    # - cron: '17 4 * * *'
+    - cron: '17 4 * * *'
 
 permissions:
   contents: read
 
+# Duration deadlines can race with fuzz-worker shutdown (Go issue 75804).
+# A fixed execution count keeps nightly termination deterministic.
 env:
-  FUZZTIME: ${{ github.event.inputs.fuzztime || '10m' }}
+  FUZZITERATIONS: ${{ github.event.inputs.fuzziterations || '100000' }}
 
 jobs:
   fuzz:
@@ -73,7 +74,7 @@ jobs:
 
     - name: Fuzz
       if: matrix.chip == ''
-      run: go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime "$FUZZTIME" .
+      run: go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime "${FUZZITERATIONS}x" .
 
     # Compile natively, then fuzz the binary under SDE so the emulator only runs
     # the test and its fuzz workers, never the Go toolchain.
@@ -93,7 +94,7 @@ jobs:
         $SDE_PATH/sde64 -${{ matrix.chip }} -- ./kt128.test -test.run '^TestExpectedISA$' -test.v
         $SDE_PATH/sde64 -${{ matrix.chip }} -- ./kt128.test \
           -test.run '^$' -test.fuzz '^${{ matrix.target }}$' \
-          -test.fuzztime "$FUZZTIME" -test.fuzzcachedir "$(go env GOCACHE)/fuzz"
+          -test.fuzztime "${FUZZITERATIONS}x" -test.fuzzcachedir "$(go env GOCACHE)/fuzz"
 
     # On a crash, go test writes the reproducer to testdata/fuzz/<Target>/; keep
     # it so the failing input can be replayed locally.
