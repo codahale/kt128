@@ -13,9 +13,10 @@
 // ABSORB_LANE_X8_GATHER gathers one uint64 from 8 instances at the given byte
 // offset from BX (data base pointer) using Z28 as the index vector
 // ({0, stride, 2*stride, ..., 7*stride}), and XORs the result into Zlane.
-// K1 is reset to all-ones before each gather.
+// R14 holds the active-lane mask; K1 is restored before each gather because
+// VPGATHERQQ clears mask bits as it completes each lane.
 #define ABSORB_LANE_X8_GATHER(offset, Zlane) \
-	KXNORB	K1, K1, K1; \
+	KMOVB	R14, K1; \
 	VPGATHERQQ	offset(BX)(Z28*1), K1, Z25; \
 	VPXORQ	Z25, Zlane, Zlane
 
@@ -133,6 +134,7 @@
 TEXT ·processLeavesAVX512(SB), $64-16
 	MOVQ	input+0(FP), BX
 	MOVQ	cvs+8(FP), DI
+	MOVL	$0xff, R14
 
 	// Build gather index vector {0, 8192, 2×8192, ..., 7×8192} at SP+0.
 	MOVQ	$0, 0(SP)
@@ -225,10 +227,9 @@ leaves_avx512_loop:
 //
 // Direct-read remainder kernel: processes n (2..7) contiguous 8192-byte chunks
 // in a single 8-wide pass, writing n×32-byte CVs to cvs. The gather index vector
-// maps lanes 0..n-1 to their chunks and clamps lanes n..7 to chunk 0, so the
-// dummy lanes read in-bounds memory (recomputing chunk 0's CV, which is
-// discarded). This drains a 2..7 leaf remainder without padding into and zeroing
-// a 64 KiB scratch buffer, and beats the serial x1 path for small remainders.
+// maps lanes 0..n-1 to their chunks. Lanes n..7 are masked off. This drains a
+// 2..7 leaf remainder without padding into and zeroing a 64 KiB scratch buffer,
+// and beats the serial x1 path for small remainders.
 //
 // Body mirrors processLeavesAVX512; only the gather index construction differs.
 // Frame: 64 bytes local (gather indices), 24 bytes args.
@@ -236,6 +237,10 @@ TEXT ·processLeavesRunAVX512(SB), $64-24
 	MOVQ	input+0(FP), BX
 	MOVQ	cvs+8(FP), DI
 	MOVQ	n+16(FP), AX
+	MOVL	$1, R14
+	MOVQ	AX, CX
+	SHLL	CX, R14
+	SUBL	$1, R14	// active lanes 0..n-1
 
 	// Build clamped gather index vector at SP+0: lane i = (i < n) ? i*8192 : 0.
 	// Lane 0 is always chunk 0; lanes n..7 fall back to chunk 0 (in-bounds).
@@ -306,9 +311,9 @@ leaves_run_avx512_loop:
 // whose data starts at input+n*8192 and participates for its nShared whole
 // 168-byte stripes. After those stripes lane n's 25-lane state is written to
 // lane1 for the Go caller to finish (ragged tail, padding, and closing
-// permutation), the lane is re-clamped to chunk 0 as a dummy, and the
-// complete lanes run their remaining stripes and padded final block. CVs for
-// all 8 lanes are scattered into cvs; the caller reads the first n.
+// permutation), the lane is masked off, and the complete lanes run their
+// remaining stripes and padded final block. CVs for all 8 lanes are scattered
+// into cvs; the caller reads the first n.
 //
 // Reads exactly n*8192 complete-chunk bytes and nShared*168 tail bytes.
 // nShared must be in [0, 48].
@@ -318,6 +323,10 @@ TEXT ·processLeavesRunPartialAVX512(SB), $64-40
 	MOVQ	n+16(FP), AX
 	MOVQ	nShared+24(FP), R13
 	MOVQ	lane1+32(FP), SI
+	MOVL	$2, R14
+	MOVQ	AX, CX
+	SHLL	CX, R14
+	SUBL	$1, R14	// active lanes 0..n, including the partial tail
 
 	// Build the gather index vector at SP+0 with n+1 active lanes:
 	// lane i = (i <= n) ? i*8192 : 0. Lanes past the tail lane fall back to
@@ -382,9 +391,9 @@ run_partial_export:
 	VPCOMPRESSQ	Z23, K2, Z25; VMOVQ X25, R9; MOVQ R9, 184(SI)
 	VPCOMPRESSQ	Z24, K2, Z25; VMOVQ X25, R9; MOVQ R9, 192(SI)
 
-	// Re-clamp the tail lane to chunk 0: it is dead from here on but must
-	// keep gathering in-bounds memory.
-	MOVQ	$0, 0(SP)(AX*8)
+	// The tail lane is dead from here on. Remove it from the gather mask so
+	// only the n complete lanes can access memory.
+	SHRL	$1, R14
 
 	TESTQ	R12, R12
 	JZ	run_partial_final
@@ -456,6 +465,10 @@ TEXT ·processS0LeavesAVX512(SB), $64-32
 	MOVQ	state+8(FP), SI
 	MOVQ	cvs+16(FP), DI
 	MOVQ	n+24(FP), AX
+	MOVL	$1, R14
+	MOVQ	AX, CX
+	SHLL	CX, R14
+	SUBL	$1, R14	// active lanes 0..n-1
 
 	// Build clamped gather index vector at SP+0: lane i = (i < n) ? i*8192 : 0.
 	// Lane 0 is always chunk 0 (S_0); lanes n..7 fall back to chunk 0 (in-bounds).
@@ -563,8 +576,8 @@ s0leaves_avx512_loop:
 // which participates for its nShared whole 168-byte stripes starting at
 // input+n*8192. After those stripes lane n's 25-lane state is written to
 // tail for the Go caller to continue (more absorption, or the ragged end
-// and padding), the lane is re-clamped to chunk 0 as a dummy, and the
-// remaining stripes and last block proceed as in processS0LeavesAVX512:
+// and padding), the lane is masked off, and the remaining stripes and last
+// block proceed as in processS0LeavesAVX512:
 // the marker word for lane 0, DS and pad10*1 for the leaf lanes, the
 // final-node state extracted to state before the closing permutation.
 // Leaf CVs land in cvs slots 1..n-1; slot 0 and dummy slots hold garbage.
@@ -578,6 +591,10 @@ TEXT ·processS0LeavesTailAVX512(SB), $64-48
 	MOVQ	n+24(FP), AX
 	MOVQ	nShared+32(FP), R13
 	MOVQ	tail+40(FP), R8
+	MOVL	$2, R14
+	MOVQ	AX, CX
+	SHLL	CX, R14
+	SUBL	$1, R14	// active lanes 0..n, including the partial tail
 
 	// Build the gather index vector at SP+0 with n+1 active lanes:
 	// lane i = (i <= n) ? i*8192 : 0. Lane 0 is S_0, lane n the partial;
@@ -642,9 +659,9 @@ s0tail_export:
 	VPCOMPRESSQ	Z23, K2, Z25; VMOVQ X25, R9; MOVQ R9, 184(R8)
 	VPCOMPRESSQ	Z24, K2, Z25; VMOVQ X25, R9; MOVQ R9, 192(R8)
 
-	// Re-clamp the tail lane to chunk 0: it is dead from here on but must
-	// keep gathering in-bounds memory.
-	MOVQ	$0, 0(SP)(AX*8)
+	// The tail lane is dead from here on. Remove it from the gather mask so
+	// only S_0 and the complete leaves can access memory.
+	SHRL	$1, R14
 
 	TESTQ	R12, R12
 	JZ	s0tail_final
