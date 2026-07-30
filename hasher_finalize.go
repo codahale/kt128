@@ -26,7 +26,6 @@ func (h *Hasher) finalize() {
 	} else {
 		suffix = customSuffix(make([]byte, 0, n), h.c)
 	}
-
 	h.absorbMessage(suffix)
 	h.final.padPermute(h.ds)
 }

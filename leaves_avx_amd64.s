@@ -8,6 +8,7 @@
 #include "textflag.h"
 #include "keccak_round_avx2_x4_amd64.h"
 #include "keccak_round_avx512_x8_amd64.h"
+#include "wipe_amd64.h"
 
 // ABSORB_LANE_X8_GATHER gathers one uint64 from 8 instances at the given byte
 // offset from BX (data base pointer) using Z28 as the index vector
@@ -1098,6 +1099,7 @@ leaves_avx2_final_round_b:
 	VMOVDQU	Y2, 6*32(DI)
 	VMOVDQU	Y3, 7*32(DI)
 
+	WIPE_STACK_QWORDS(206)
 	VZEROUPPER
 	RET
 
@@ -1287,6 +1289,7 @@ leaves_quad_avx2_final_round:
 	VMOVDQU	Y2, 2*32(DI)
 	VMOVDQU	Y3, 3*32(DI)
 
+	WIPE_STACK_QWORDS(206)
 	VZEROUPPER
 	RET
 
@@ -1511,6 +1514,7 @@ s0_quad_avx2_final:
 
 	EXTRACT_CVS_X4
 
+	WIPE_STACK_QWORDS(208)
 	VZEROUPPER
 	RET
 
@@ -1673,6 +1677,7 @@ s0_quad_tail_final:
 
 	EXTRACT_CVS_X4
 
+	WIPE_STACK_QWORDS(211)
 	VZEROUPPER
 	RET
 
@@ -1799,5 +1804,6 @@ quad_tail_avx2_final:
 
 	EXTRACT_CVS_X4
 
+	WIPE_STACK_QWORDS(210)
 	VZEROUPPER
 	RET

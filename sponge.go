@@ -62,9 +62,7 @@ func (s *sponge) absorb(data []byte) {
 			s.pos += len(data)
 			return
 		}
-		var tmp [8]byte
-		copy(tmp[rem:], data[:need])
-		s.a[s.pos>>3] ^= binary.LittleEndian.Uint64(tmp[:])
+		s.a[s.pos>>3] ^= loadPartialLE(data[:need]) << (rem * 8)
 		s.pos += need
 		data = data[need:]
 		if s.pos == rate {
@@ -132,15 +130,32 @@ func (s *sponge) absorbCVlanes(w0, w1, w2, w3 uint64) {
 		return
 	}
 
-	words := [4]uint64{w0, w1, w2, w3}
-	for i := range remaining {
-		s.a[lane+i] ^= words[i]
+	switch remaining {
+	case 1:
+		s.a[lane] ^= w0
+	case 2:
+		s.a[lane] ^= w0
+		s.a[lane+1] ^= w1
+	case 3:
+		s.a[lane] ^= w0
+		s.a[lane+1] ^= w1
+		s.a[lane+2] ^= w2
 	}
 	s.permute12()
 	s.pos = 0
-	for i := remaining; i < 4; i++ {
-		s.a[i-remaining] ^= words[i]
-		s.pos += 8
+	switch remaining {
+	case 1:
+		s.a[0] ^= w1
+		s.a[1] ^= w2
+		s.a[2] ^= w3
+		s.pos = 24
+	case 2:
+		s.a[0] ^= w2
+		s.a[1] ^= w3
+		s.pos = 16
+	case 3:
+		s.a[0] ^= w3
+		s.pos = 8
 	}
 }
 
@@ -163,6 +178,7 @@ func (s *sponge) squeeze(dst []byte) {
 			var tmp [8]byte
 			binary.LittleEndian.PutUint64(tmp[:], s.a[lane])
 			n := copy(dst, tmp[off:])
+			wipeBytes(tmp[:])
 			s.pos += n
 			dst = dst[n:]
 			continue
@@ -176,6 +192,7 @@ func (s *sponge) squeeze(dst []byte) {
 			var tmp [8]byte
 			binary.LittleEndian.PutUint64(tmp[:], s.a[s.pos>>3])
 			n := copy(dst, tmp[:])
+			wipeBytes(tmp[:])
 			s.pos += n
 			dst = dst[n:]
 		}

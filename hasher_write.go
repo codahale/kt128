@@ -150,8 +150,17 @@ func (h *Hasher) Write(p []byte) (int, error) {
 // chunk in progress — so steady-state streaming settles after a single
 // growth instead of re-copying the buffer through append's doubling steps.
 func (h *Hasher) bufferTail(p []byte) {
-	if need := len(h.buf) + len(p); cap(h.buf) != 0 && cap(h.buf) < need && need >= growJumpMin {
-		h.growBuf(need)
+	if need := len(h.buf) + len(p); cap(h.buf) < need {
+		if cap(h.buf) != 0 && need >= growJumpMin {
+			h.growBuf(need)
+		} else {
+			old := h.buf
+			h.buf = append(h.buf, p...)
+			if cap(old) > 0 {
+				wipeBytes(old[:cap(old)])
+			}
+			return
+		}
 	}
 	h.buf = append(h.buf, p...)
 }
@@ -160,8 +169,10 @@ func (h *Hasher) bufferTail(p []byte) {
 // high-water mark (or need, if larger). Kept out of bufferTail so the no-grow
 // fast path stays within the inlining budget.
 func (h *Hasher) growBuf(need int) {
+	old := h.buf
 	grown := make([]byte, len(h.buf), max(need, (streamChunks+1)*ChunkSize))
 	copy(grown, h.buf)
+	wipeBytes(old[:cap(old)])
 	h.buf = grown
 }
 
@@ -181,6 +192,7 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	idx := 0
 
 	var cvs [256]byte
+	defer wipeBytes(cvs[:])
 
 	// Hybrid pass: drain leaves five at a time where a hybrid scalar/NEON
 	// kernel exists (arm64), covering four leaves at 2-wide NEON throughput
@@ -246,6 +258,7 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 		off := idx * ChunkSize
 		leafStateX1(data[off:off+ChunkSize], &s1)
 		h.final.absorbCV(&s1)
+		s1.wipe()
 		idx++
 	}
 

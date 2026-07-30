@@ -35,14 +35,20 @@ func (h *Hasher) Reset() {
 	h.state = stateSingle
 }
 
-// Clear zeros all message-derived state owned by h and resets it for reuse while
-// preserving the customization string passed to [New]. Unlike [Hasher.Reset],
-// Clear scrubs the full backing array of the buffered message before releasing
-// it.
+// Clear makes a best effort to zero all message-derived state owned by h and
+// resets it for reuse while preserving the customization string passed to
+// [New]. Unlike [Hasher.Reset], Clear scrubs message-buffer allocations before
+// releasing them.
+//
+// Clear cannot erase caller-owned input or output buffers, independent clones,
+// copies made by the Go compiler or runtime, or values left in registers. Each
+// clone must be cleared separately.
+//
+//go:noinline
 func (h *Hasher) Clear() {
 	c := h.c
 	if cap(h.buf) > 0 {
-		clear(h.buf[:cap(h.buf)])
+		wipeBytes(h.buf[:cap(h.buf)])
 	}
 	*h = Hasher{c: c}
 }
@@ -51,9 +57,15 @@ func (h *Hasher) Clear() {
 // otherwise. It does not modify either Hasher. The comparison is constant-time
 // with respect to the contents of the inputs absorbed by the two hashers.
 func (h *Hasher) Equal(other *Hasher) int {
+	aClone, bClone := h.Clone(), other.Clone()
+	defer aClone.Clear()
+	defer bClone.Clear()
+
 	var a, b [32]byte
-	_, _ = h.Clone().Read(a[:])
-	_, _ = other.Clone().Read(b[:])
+	defer wipeBytes(a[:])
+	defer wipeBytes(b[:])
+	_, _ = aClone.Read(a[:])
+	_, _ = bClone.Read(b[:])
 	return subtle.ConstantTimeCompare(a[:], b[:])
 }
 

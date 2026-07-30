@@ -323,6 +323,9 @@ x5_pass2_loop:
 	WEAVE_B
 
 	X5_EPILOGUE
+	STP	(ZR, ZR), 32(RSP)
+	STP	(ZR, ZR), 48(RSP)
+	MOVD	ZR, 64(RSP)
 	RET
 
 // func processLeaves3ARM64(pairInput, scalarInput *byte, cvs *byte, state *uint64)
@@ -424,4 +427,7 @@ x3_pair_loop:
 	// Extract the completed pair CVs.
 	MOVD	96(RSP), R22
 	EXTRACT_CVS_X5
+	STP	(ZR, ZR), 32(RSP)
+	STP	(ZR, ZR), 48(RSP)
+	MOVD	ZR, 64(RSP)
 	RET

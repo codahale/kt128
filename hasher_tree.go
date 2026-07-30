@@ -15,6 +15,7 @@ func (h *Hasher) startTreeMode() {
 // leaf state, consuming those bytes too (recorded in h.pendingLen).
 func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 	var cvs [256]byte
+	defer wipeBytes(cvs[:])
 	if tailBlocks > 0 {
 		if !processS0LeavesTailArch(p, n, tailBlocks, &h.final, pendingSponge(&h.pending), &cvs) {
 			return false
@@ -42,6 +43,8 @@ func (h *Hasher) fuseTrailingLeaves(trailing []byte, n int, head, suffix []byte)
 	nShared := len(head) / rate
 	var cvs [256]byte
 	var s sponge
+	defer wipeBytes(cvs[:])
+	defer s.wipe()
 	processLeavesTailArch(trailing, n, nShared, &cvs, &s)
 	h.final.absorbCVs(cvs[:n*32])
 	s.absorb(head[nShared*rate:])
@@ -67,6 +70,7 @@ func (h *Hasher) absorbTailLeaves(head, tail []byte) {
 	// contiguous pass below.
 	n := min(ChunkSize-len(head), len(tail))
 	var s sponge
+	defer s.wipe()
 	s.absorb(head)
 	s.absorb(tail[:n])
 	s.padPermute(leafDS)
@@ -86,6 +90,7 @@ func (h *Hasher) absorbContiguousLeaves(data []byte) {
 		var s sponge
 		leafStateX1(data[nFull*ChunkSize:], &s)
 		h.final.absorbCV(&s)
+		s.wipe()
 		h.leafCount++
 	}
 }
