@@ -1,4 +1,4 @@
-// Keccak-f[1600] GP (general-purpose register) round macro.
+// Keccak-f[1600] GP (general-purpose register) round macro. Requires BMI2.
 // Shared by the scalar permutation and fused absorb implementations.
 //
 // Register conventions (set up by caller):

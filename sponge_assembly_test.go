@@ -132,6 +132,9 @@ func addPermuteSeeds(f *testing.F) {
 // FuzzP1600 fuzzes the scalar assembly Keccak-p[1600,12] against the pure-Go
 // reference.
 func FuzzP1600(f *testing.F) {
+	if runtime.GOARCH == "amd64" && !cpuid.HasBMI2 {
+		f.Skip("no BMI2 extension")
+	}
 	if runtime.GOARCH == "arm64" && !cpuid.HasSHA3 {
 		f.Skip("no SHA3 extension")
 	}
@@ -144,6 +147,9 @@ func FuzzP1600(f *testing.F) {
 // FuzzFastLoopAbsorb168x1 fuzzes the scalar assembly absorb-permute loop against
 // the pure-Go reference, over arbitrary initial states and stripe counts.
 func FuzzFastLoopAbsorb168x1(f *testing.F) {
+	if runtime.GOARCH == "amd64" && !cpuid.HasBMI2 {
+		f.Skip("no BMI2 extension")
+	}
 	if runtime.GOARCH == "arm64" && !cpuid.HasSHA3 {
 		f.Skip("no SHA3 extension")
 	}

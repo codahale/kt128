@@ -238,6 +238,9 @@ func runLeafKernels(t *testing.T) {
 	}
 
 	// Scalar fused absorb loop: reads exactly n bytes from its pointer.
+	if runtime.GOARCH == "amd64" && !cpuid.HasBMI2 {
+		return
+	}
 	if runtime.GOARCH == "arm64" && !cpuid.HasSHA3 {
 		return
 	}
