@@ -14,10 +14,10 @@ import (
 
 // These tests hedge the memory-safety risk of the leaf kernels, which read
 // caller memory directly through unsafe pointers. The remainder kernels are the
-// sharpest edge: the AVX-512 run kernel steers its dummy lanes back to chunk 0
-// with a clamped gather index, and the AVX2 quad kernel points its dummy lanes
-// at an in-bounds chunk. Both are correct only by construction — a wrong clamp
-// or offset turns into an out-of-bounds read.
+// sharpest edge: inactive AVX-512 lanes must remain masked, and the AVX2 quad
+// kernel points its dummy lanes at an in-bounds chunk. Both are correct only by
+// construction — a wrong mask, pointer, or offset turns into an out-of-bounds
+// read.
 //
 // Each kernel is run against a buffer whose final byte sits flush against an
 // inaccessible guard page, so any read past the intended end faults. On amd64
@@ -187,17 +187,18 @@ func runLeafKernels(t *testing.T) {
 		})
 	}
 
-	// Fused S_0+leaves+partial kernel: reads exactly n contiguous chunks plus
-	// nShared whole rate-blocks of the trailing partial. The tail lane is
-	// re-clamped to a dummy after its blocks; a wrong clamp or an unclamped
-	// walk past the partial's blocks reads the guard.
+	// Fused S_0+leaves+partial kernel: exhaustively test every supported lane
+	// count and shared-stripe count. It reads exactly n contiguous chunks plus
+	// nShared whole rate-blocks of the trailing partial. After those blocks the
+	// tail lane must be masked off; a wrong mask or an overlong walk reads the
+	// guard.
 	for n := 2; n <= 7; n++ {
 		var probeFinal, probePending sponge
 		var probeCVs [256]byte
 		if !processS0LeavesTailArch(make([]byte, n*ChunkSize), n, 0, &probeFinal, &probePending, &probeCVs) {
 			continue
 		}
-		for _, nShared := range []int{0, 24, 48} {
+		for nShared := 0; nShared <= 48; nShared++ {
 			buf := guardedBuffer(t, n*ChunkSize+nShared*rate)
 			var final, pending sponge
 			var cvsOut [256]byte
@@ -218,23 +219,25 @@ func runLeafKernels(t *testing.T) {
 		}
 	}
 
-	// Trailing-leaves+partial kernel: reads exactly n*ChunkSize complete-chunk
-	// bytes plus nShared whole rate-blocks of the head. On AVX-512 the tail
-	// lane is re-clamped to a dummy after its blocks; a wrong clamp or an
-	// unclamped walk past the head reads the guard.
+	// Trailing-leaves+partial kernel: exhaustively test every supported lane
+	// count and shared-stripe count. It reads exactly n*ChunkSize complete-chunk
+	// bytes plus nShared whole rate-blocks of the head. On AVX-512 the tail lane
+	// must be masked off after its blocks; a wrong mask or an overlong walk reads
+	// the guard.
 	for n := 1; n <= 7; n++ {
 		var probeCVs [256]byte
 		var probeSponge sponge
 		if !processLeavesTailArch(make([]byte, n*ChunkSize), n, 0, &probeCVs, &probeSponge) {
 			continue
 		}
-		const headLen = 25 * rate
-		buf := guardedBuffer(t, n*ChunkSize+headLen)
-		var cvsOut [256]byte
-		var s sponge
-		expectNoFault(t, fmt.Sprintf("processLeavesTail(n=%d)", n), func() {
-			processLeavesTailArch(buf, n, headLen/rate, &cvsOut, &s)
-		})
+		for nShared := 0; nShared <= 48; nShared++ {
+			buf := guardedBuffer(t, n*ChunkSize+nShared*rate)
+			var cvsOut [256]byte
+			var s sponge
+			expectNoFault(t, fmt.Sprintf("processLeavesTail(n=%d,nShared=%d)", n, nShared), func() {
+				processLeavesTailArch(buf, n, nShared, &cvsOut, &s)
+			})
+		}
 	}
 
 	// Scalar fused absorb loop: reads exactly n bytes from its pointer.
