@@ -2,6 +2,9 @@ package kt128
 
 import "math/bits"
 
+// Read fills p with output from the XOF and returns len(p), nil. The first call,
+// including a zero-length call, finalizes the message; subsequent calls continue
+// squeezing the same output stream. Read never returns io.EOF.
 func (h *Hasher) Read(p []byte) (int, error) {
 	if h.state != stateFinalized {
 		h.finalize()
@@ -27,8 +30,6 @@ func (h *Hasher) finalize() {
 	h.absorbMessage(suffix)
 	h.final.padPermute(h.ds)
 }
-
-// Clone returns an independent copy of the Hasher. The original and clone evolve independently.
 
 func customSuffix(dst []byte, c []byte) []byte {
 	dst = append(dst, c...)

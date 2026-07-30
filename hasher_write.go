@@ -1,5 +1,8 @@
 package kt128
 
+// Write absorbs p as message data. It always returns len(p), nil and does not
+// retain p. Write panics after any call to [Hasher.Read], including a zero-length
+// read.
 func (h *Hasher) Write(p []byte) (int, error) {
 	if h.state == stateFinalized {
 		panic("kt128: Hasher is finalized")
@@ -248,8 +251,6 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 
 	h.leafCount += uint64(nLeaves)
 }
-
-// Read squeezes output from the XOF. On the first call, it finalizes absorption.
 
 func (h *Hasher) extendPending(p []byte) []byte {
 	pending := pendingSponge(&h.pending)
