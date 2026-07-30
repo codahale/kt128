@@ -22,16 +22,16 @@ func FuzzHasher(f *testing.F) {
 	f.Add([]byte("msg"), []byte("custom"), uint16(2), uint16(64))
 	// 8192-byte message with an empty customization string: S is 8193 bytes, so
 	// this is the smallest input that enters tree mode (one trailing leaf).
-	f.Add(bytes.Repeat([]byte{0xA5}, BlockSize), []byte(""), uint16(7), uint16(64))
+	f.Add(bytes.Repeat([]byte{0xA5}, ChunkSize), []byte(""), uint16(7), uint16(64))
 	// Full single-node chunk written in one shot.
-	f.Add(bytes.Repeat([]byte{0x5A}, BlockSize-1), []byte(""), uint16(BlockSize), uint16(32))
+	f.Add(bytes.Repeat([]byte{0x5A}, ChunkSize-1), []byte(""), uint16(ChunkSize), uint16(32))
 	// Multi-batch tree mode (9 chunks) with a customization string: enough leaves
 	// to trigger one full 8-wide SIMD batch.
-	f.Add(bytes.Repeat([]byte{0xCD}, 9*BlockSize), []byte("domain"), uint16(168), uint16(137))
+	f.Add(bytes.Repeat([]byte{0xCD}, 9*ChunkSize), []byte("domain"), uint16(168), uint16(137))
 	// Tree mode with a SIMD-batch remainder, split on a sub-chunk boundary.
-	f.Add(bytes.Repeat([]byte{0x3C}, 11*BlockSize+123), []byte(""), uint16(4096), uint16(256))
+	f.Add(bytes.Repeat([]byte{0x3C}, 11*ChunkSize+123), []byte(""), uint16(4096), uint16(256))
 	// Large customization string so S_0 straddles message and suffix.
-	f.Add([]byte("m"), bytes.Repeat([]byte{0x11}, BlockSize+64), uint16(3), uint16(96))
+	f.Add([]byte("m"), bytes.Repeat([]byte{0x11}, ChunkSize+64), uint16(3), uint16(96))
 
 	f.Fuzz(func(t *testing.T, msg, custom []byte, chunkRaw, outRaw uint16) {
 		// Bound sizes so iterations stay fast while still spanning chunk and
@@ -47,7 +47,7 @@ func FuzzHasher(f *testing.F) {
 		if len(custom) > maxLen {
 			custom = custom[:maxLen]
 		}
-		chunk := int(chunkRaw)%(BlockSize+1) + 1
+		chunk := int(chunkRaw)%(ChunkSize+1) + 1
 		outLen := int(outRaw)%4096 + 1
 
 		h := New(custom)
@@ -81,19 +81,19 @@ func referenceKT128(msg, custom []byte, outLen int) []byte {
 	s = append(s, refLengthEncode(uint64(len(custom)))...)
 
 	// Single node when S fits in one chunk.
-	if len(s) <= BlockSize {
+	if len(s) <= ChunkSize {
 		return refTurboSHAKE128(s, singleDS, outLen)
 	}
 
 	// Tree mode: final node = S_0 || 110^62 || CV_1 || ... || CV_n ||
 	//            length_encode(n) || 0xFF 0xFF, hashed with the tree domain byte.
 	var final refSponge
-	final.absorb(s[:BlockSize])
+	final.absorb(s[:ChunkSize])
 	final.absorb([]byte{0x03, 0, 0, 0, 0, 0, 0, 0}) // 110^62 marker
 
 	var leafCount uint64
-	for rest := s[BlockSize:]; len(rest) > 0; {
-		n := min(len(rest), BlockSize)
+	for rest := s[ChunkSize:]; len(rest) > 0; {
+		n := min(len(rest), ChunkSize)
 		cv := refTurboSHAKE128(rest[:n], leafDS, 32) // 256-bit leaf chain value
 		final.absorb(cv)
 		leafCount++

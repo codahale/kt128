@@ -28,7 +28,7 @@ func TestWriteForceGenericFallback(t *testing.T) {
 	}
 
 	for _, size := range []int{
-		0, BlockSize, 2 * BlockSize, 9*BlockSize + 137, 1024 * 1024,
+		0, ChunkSize, 2 * ChunkSize, 9*ChunkSize + 137, 1024 * 1024,
 	} {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
 			msg := ptn(size)
@@ -56,7 +56,7 @@ func TestWriteForceAVX2DirectFlush(t *testing.T) {
 
 	t.Run("quad tail flushes in place", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(8 * BlockSize)) // S_0+3 leaves fused, 4 leaves in place
+		_, _ = h.Write(ptn(8 * ChunkSize)) // S_0+3 leaves fused, 4 leaves in place
 
 		if h.leafCount != 7 {
 			t.Fatalf("leaf count = %d, want 7", h.leafCount)
@@ -69,13 +69,13 @@ func TestWriteForceAVX2DirectFlush(t *testing.T) {
 	t.Run("sub-batch flush with buffered tail", func(t *testing.T) {
 		h := New(nil)
 		// S_0+3 leaves fused, 4 leaves in place, 3 chunks + 37 bytes buffered.
-		_, _ = h.Write(ptn(11*BlockSize + 37))
+		_, _ = h.Write(ptn(11*ChunkSize + 37))
 
 		if h.leafCount != 7 {
 			t.Fatalf("leaf count = %d, want 7", h.leafCount)
 		}
-		if len(h.buf) != 3*BlockSize+37 {
-			t.Fatalf("buffered bytes = %d, want %d", len(h.buf), 3*BlockSize+37)
+		if len(h.buf) != 3*ChunkSize+37 {
+			t.Fatalf("buffered bytes = %d, want %d", len(h.buf), 3*ChunkSize+37)
 		}
 	})
 }
@@ -92,7 +92,7 @@ func TestWriteS0TailFusion(t *testing.T) {
 
 	t.Run("ragged one-shot leaves a pending leaf", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(3*BlockSize + 4096)) // S_0+2 leaves fused, 24 tail blocks ride
+		_, _ = h.Write(ptn(3*ChunkSize + 4096)) // S_0+2 leaves fused, 24 tail blocks ride
 
 		if h.pendingLen != 24*rate {
 			t.Fatalf("pendingLen = %d, want %d", h.pendingLen, 24*rate)
@@ -107,7 +107,7 @@ func TestWriteS0TailFusion(t *testing.T) {
 
 	t.Run("two chunks below the pair threshold stay serial", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(2*BlockSize + (s0TailPairMin-1)*rate))
+		_, _ = h.Write(ptn(2*ChunkSize + (s0TailPairMin-1)*rate))
 
 		if h.pendingLen != 0 {
 			t.Fatalf("pendingLen = %d, want 0", h.pendingLen)
@@ -116,7 +116,7 @@ func TestWriteS0TailFusion(t *testing.T) {
 
 	t.Run("two chunks at the pair threshold ride the quad", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(2*BlockSize + s0TailPairMin*rate))
+		_, _ = h.Write(ptn(2*ChunkSize + s0TailPairMin*rate))
 
 		if h.pendingLen != s0TailPairMin*rate {
 			t.Fatalf("pendingLen = %d, want %d", h.pendingLen, s0TailPairMin*rate)
@@ -125,7 +125,7 @@ func TestWriteS0TailFusion(t *testing.T) {
 
 	t.Run("eight chunks have no free lane", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(8*BlockSize + 4096))
+		_, _ = h.Write(ptn(8*ChunkSize + 4096))
 
 		if h.pendingLen != 0 {
 			t.Fatalf("pendingLen = %d, want 0", h.pendingLen)
@@ -163,7 +163,7 @@ func TestWriteS0TailFusionAVX2(t *testing.T) {
 
 	t.Run("two-chunk ragged one-shot leaves a pending leaf", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(2*BlockSize + 4096)) // S_0+1 leaf fused, 24 tail blocks ride
+		_, _ = h.Write(ptn(2*ChunkSize + 4096)) // S_0+1 leaf fused, 24 tail blocks ride
 
 		if h.pendingLen != 24*rate {
 			t.Fatalf("pendingLen = %d, want %d", h.pendingLen, 24*rate)
@@ -178,7 +178,7 @@ func TestWriteS0TailFusionAVX2(t *testing.T) {
 
 	t.Run("three-chunk ragged one-shot leaves a pending leaf", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(3*BlockSize + 300)) // one whole tail block rides
+		_, _ = h.Write(ptn(3*ChunkSize + 300)) // one whole tail block rides
 
 		if h.pendingLen != rate {
 			t.Fatalf("pendingLen = %d, want %d", h.pendingLen, rate)
@@ -190,7 +190,7 @@ func TestWriteS0TailFusionAVX2(t *testing.T) {
 
 	t.Run("four chunks have no free lane", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(4*BlockSize + 4096))
+		_, _ = h.Write(ptn(4*ChunkSize + 4096))
 
 		if h.pendingLen != 0 {
 			t.Fatalf("pendingLen = %d, want 0", h.pendingLen)

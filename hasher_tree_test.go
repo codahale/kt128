@@ -8,8 +8,8 @@ import (
 
 func TestWriteFusedS0Leaf(t *testing.T) {
 	sizes := []int{
-		2 * BlockSize, 2*BlockSize + 1, 3 * BlockSize, 5*BlockSize + 11,
-		8 * BlockSize, 8*BlockSize + 37, 9 * BlockSize, 16 * BlockSize, 16*BlockSize + 5,
+		2 * ChunkSize, 2*ChunkSize + 1, 3 * ChunkSize, 5*ChunkSize + 11,
+		8 * ChunkSize, 8*ChunkSize + 37, 9 * ChunkSize, 16 * ChunkSize, 16*ChunkSize + 5,
 	}
 	for _, size := range sizes {
 		msg := ptn(size)
@@ -34,7 +34,7 @@ func TestWriteFusedS0Leaf(t *testing.T) {
 func TestWriteTreeModeBuffering(t *testing.T) {
 	t.Run("direct S0", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(BlockSize + 1))
+		_, _ = h.Write(ptn(ChunkSize + 1))
 
 		if h.state != stateTree {
 			t.Fatalf("state = %d, want stateTree", h.state)
@@ -42,14 +42,14 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		if len(h.buf) != 1 {
 			t.Fatalf("buffered bytes = %d, want 1", len(h.buf))
 		}
-		if cap(h.buf) >= BlockSize {
+		if cap(h.buf) >= ChunkSize {
 			t.Fatalf("buffer capacity = %d, want less than one block", cap(h.buf))
 		}
 	})
 
 	t.Run("no buffering below one chunk", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(BlockSize))
+		_, _ = h.Write(ptn(ChunkSize))
 
 		if h.state != stateSingle {
 			t.Fatalf("state = %d, want stateSingle", h.state)
@@ -66,13 +66,13 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		if len(h.buf) != 1 {
 			t.Fatalf("buffered bytes = %d, want 1", len(h.buf))
 		}
-		if cap(h.buf) >= BlockSize {
+		if cap(h.buf) >= ChunkSize {
 			t.Fatalf("buffer capacity = %d, want less than one block", cap(h.buf))
 		}
 	})
 
 	t.Run("streaming buffer settles after one growth", func(t *testing.T) {
-		chunk := ptn(BlockSize)
+		chunk := ptn(ChunkSize)
 
 		// A fresh hasher's first flush cycle grows the buffer a bounded
 		// number of times — the initial exact-size fill, append-sized steps
@@ -96,15 +96,15 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		for range 2*streamChunks + 2 {
 			_, _ = h.Write(chunk)
 		}
-		if maxCap := (streamChunks + 1) * BlockSize; cap(h.buf) > maxCap {
+		if maxCap := (streamChunks + 1) * ChunkSize; cap(h.buf) > maxCap {
 			t.Fatalf("buffer capacity = %d, want at most %d", cap(h.buf), maxCap)
 		}
 	})
 
 	t.Run("flush exact lane batch", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(BlockSize + 1))
-		_, _ = h.Write(ptn(streamChunks*BlockSize - 1))
+		_, _ = h.Write(ptn(ChunkSize + 1))
+		_, _ = h.Write(ptn(streamChunks*ChunkSize - 1))
 
 		if h.leafCount != uint64(streamChunks) {
 			t.Fatalf("leaf count = %d, want %d", h.leafCount, streamChunks)
@@ -119,20 +119,20 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 			t.Skip("scalar path has no multi-chunk batch")
 		}
 
-		msg := ptn((streamChunks + 3) * BlockSize)
+		msg := ptn((streamChunks + 3) * ChunkSize)
 		h := New(nil)
-		_, _ = h.Write(msg[:2*BlockSize])
-		_, _ = h.Write(msg[2*BlockSize : 3*BlockSize])
-		if len(h.buf) != BlockSize {
-			t.Fatalf("buffered bytes before top-up = %d, want %d", len(h.buf), BlockSize)
+		_, _ = h.Write(msg[:2*ChunkSize])
+		_, _ = h.Write(msg[2*ChunkSize : 3*ChunkSize])
+		if len(h.buf) != ChunkSize {
+			t.Fatalf("buffered bytes before top-up = %d, want %d", len(h.buf), ChunkSize)
 		}
 
-		_, _ = h.Write(msg[3*BlockSize:])
+		_, _ = h.Write(msg[3*ChunkSize:])
 		if h.leafCount != uint64(streamChunks+1) {
 			t.Fatalf("leaf count = %d, want %d", h.leafCount, streamChunks+1)
 		}
-		if len(h.buf) != BlockSize {
-			t.Fatalf("buffered bytes after top-up = %d, want %d", len(h.buf), BlockSize)
+		if len(h.buf) != ChunkSize {
+			t.Fatalf("buffered bytes after top-up = %d, want %d", len(h.buf), ChunkSize)
 		}
 
 		got := make([]byte, 32)
@@ -153,7 +153,7 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 			t.Skip("amd64 shapes are covered by TestWriteForceAVX2DirectFlush")
 		}
 		h := New(nil)
-		_, _ = h.Write(ptn(6*BlockSize + 37)) // S_0+leaf fused, 4 leaves in place, tail buffered
+		_, _ = h.Write(ptn(6*ChunkSize + 37)) // S_0+leaf fused, 4 leaves in place, tail buffered
 
 		if h.leafCount != 5 {
 			t.Fatalf("leaf count = %d, want 5", h.leafCount)
@@ -161,14 +161,14 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		if len(h.buf) != 37 {
 			t.Fatalf("buffered bytes = %d, want 37", len(h.buf))
 		}
-		if cap(h.buf) >= BlockSize {
+		if cap(h.buf) >= ChunkSize {
 			t.Fatalf("buffer capacity = %d, want less than one block", cap(h.buf))
 		}
 	})
 
 	t.Run("process exact lane batch directly", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn((availableLanes + 1) * BlockSize))
+		_, _ = h.Write(ptn((availableLanes + 1) * ChunkSize))
 
 		if h.leafCount != uint64(availableLanes) {
 			t.Fatalf("leaf count = %d, want %d", h.leafCount, availableLanes)
@@ -187,7 +187,7 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		// the rest exactly, and purego's single-chunk unit leaves no
 		// remainder — both pin the same invariant trivially.
 		h := New(nil)
-		_, _ = h.Write(ptn(30 * BlockSize))
+		_, _ = h.Write(ptn(30 * ChunkSize))
 
 		if h.leafCount != 29 {
 			t.Fatalf("leaf count = %d, want 29", h.leafCount)

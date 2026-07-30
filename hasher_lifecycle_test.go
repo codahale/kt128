@@ -17,7 +17,7 @@ import (
 // implementation that shares no state-management code with it.
 
 const (
-	lcMaxMsg     = 3 * BlockSize // per-slot message cap (crosses single->tree and several leaves)
+	lcMaxMsg     = 3 * ChunkSize // per-slot message cap (crosses single->tree and several leaves)
 	lcMaxSqueeze = 4096          // per-slot squeeze cap (spans many rate blocks)
 	lcMaxSlots   = 8             // bound the live hasher population
 )
@@ -237,8 +237,8 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 // where the state machine changes behavior.
 var lcLenBoundaries = []int{
 	0, 1, 167, 168, 169,
-	BlockSize - 1, BlockSize, BlockSize + 1,
-	2 * BlockSize, 2*BlockSize + 1, 3 * BlockSize,
+	ChunkSize - 1, ChunkSize, ChunkSize + 1,
+	2 * ChunkSize, 2*ChunkSize + 1, 3 * ChunkSize,
 }
 
 func lcDecodeLen(b byte) int {
@@ -331,7 +331,7 @@ func TestHasherLifecycle(t *testing.T) {
 			name:    "tree then write-after-finalize then reset-reuse",
 			customs: [][]byte{nil, []byte("d")},
 			ops: []lcOp{
-				opWrite(0, BlockSize+1, 1), // enter tree mode
+				opWrite(0, ChunkSize+1, 1), // enter tree mode
 				opRead(0, 40),              // finalize + squeeze
 				opRead(0, 24),              // continue squeezing
 				opWrite(0, 10, 2),          // must panic
@@ -358,7 +358,7 @@ func TestHasherLifecycle(t *testing.T) {
 			name:    "clone a mid-squeeze finalized hasher",
 			customs: [][]byte{nil, nil},
 			ops: []lcOp{
-				opWrite(0, 2*BlockSize+5, 7), // tree mode, several leaves
+				opWrite(0, 2*ChunkSize+5, 7), // tree mode, several leaves
 				opRead(0, 13),                // finalize at an odd offset
 				opClone(0, 0),                // clone mid-squeeze -> slot 2
 				opRead(0, 19),

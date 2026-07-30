@@ -7,7 +7,7 @@ import "testing"
 // finalization never reallocates it, so a full New/Write/Read cycle allocates a
 // small constant number of times regardless of message size. A regression that
 // copied or buffered proportionally to the input would make the larger message
-// allocate more. Both sizes are well past lanes*BlockSize, so both take the
+// allocate more. Both sizes are well past lanes*ChunkSize, so both take the
 // fast path.
 func TestWriteAllocationsDoNotScale(t *testing.T) {
 	out := make([]byte, 32)
@@ -39,7 +39,7 @@ func TestWriteAllocationsDoNotScale(t *testing.T) {
 // buffers are allocated outside the measured cycle so only squeeze's own
 // allocations are counted.
 func TestReadAllocationsDoNotScale(t *testing.T) {
-	msg := ptn(BlockSize + 1) // tree mode
+	msg := ptn(ChunkSize + 1) // tree mode
 	out32 := make([]byte, 32)
 	out4k := make([]byte, 4096)
 

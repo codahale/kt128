@@ -26,7 +26,7 @@ import (
 func TestConcurrentCloneIndependence(t *testing.T) {
 	const workers = 8
 	custom := []byte("ctx")
-	baseMsg := ptn(2*BlockSize + 100) // tree mode: Clone copies buf + sponge + leafCount
+	baseMsg := ptn(2*ChunkSize + 100) // tree mode: Clone copies buf + sponge + leafCount
 
 	base := New(custom)
 	if _, err := base.Write(baseMsg); err != nil {
@@ -75,7 +75,7 @@ func TestConcurrentCloneIndependence(t *testing.T) {
 // tree, and multi-leaf SIMD paths, confirming each result against referenceKT128.
 // This is the broad reentrancy stress on the leaf kernels and the absorb loop.
 func TestConcurrentIndependentHashers(t *testing.T) {
-	sizes := []int{0, 1, BlockSize - 1, BlockSize, BlockSize + 1, 2*BlockSize + 50, 9 * BlockSize}
+	sizes := []int{0, 1, ChunkSize - 1, ChunkSize, ChunkSize + 1, 2*ChunkSize + 50, 9 * ChunkSize}
 	customs := [][]byte{nil, []byte("d"), ptn(41)}
 	const iters = 4
 
@@ -124,7 +124,7 @@ func TestConcurrentIndependentHashers(t *testing.T) {
 // lazy initialization) would both race here and corrupt the shared state.
 func TestConcurrentSharedReadOnly(t *testing.T) {
 	custom := []byte("ctx")
-	msg := ptn(3*BlockSize + 7)
+	msg := ptn(3*ChunkSize + 7)
 	h := New(custom)
 	if _, err := h.Write(msg); err != nil {
 		t.Fatalf("Write: %v", err)

@@ -6,7 +6,7 @@
 // the message; subsequent reads continue the same output stream.
 //
 // When the input (the message plus the customization string and its length
-// encoding) exceeds one 8192-byte chunk, it splits the input into chunks and
+// encoding) exceeds [ChunkSize] bytes, it splits the input into chunks and
 // computes a leaf chain value from each. On amd64 and arm64 the leaves are
 // computed in parallel using SIMD-accelerated Keccak permutations when the
 // required CPU features are available; other targets and the purego build use
@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	// BlockSize is the KT128 chunk size in bytes.
-	BlockSize = 8192
+	// ChunkSize is the KT128 chunk size in bytes.
+	ChunkSize = 8192
 
 	leafDS   = 0x0B
 	treeDS   = 0x06
@@ -65,10 +65,10 @@ func New(c []byte) *Hasher {
 	return &Hasher{c: slices.Clone(c)}
 }
 
-// BlockSize returns the KT128 chunk size in bytes. Write accepts inputs of any
-// length, but chunk-aligned writes may be processed more efficiently.
+// BlockSize returns the 168-byte TurboSHAKE128 sponge rate. Write accepts inputs
+// of any length, but rate-aligned writes may be processed more efficiently.
 func (h *Hasher) BlockSize() int {
-	return BlockSize
+	return rate
 }
 
 // Pos returns the total number of message bytes accepted by [Hasher.Write]

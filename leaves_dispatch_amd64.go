@@ -65,7 +65,7 @@ var streamChunks = func() int {
 // the large-stream win (-4.7% at 64 KiB).
 var growJumpMin = func() int {
 	if cpuid.HasAVX512 || cpuid.HasAVX2 {
-		return 4 * BlockSize
+		return 4 * ChunkSize
 	}
 	return 0
 }()
@@ -229,7 +229,7 @@ func processLeavesRunArch(data []byte, n int, cvs *[256]byte) bool {
 	for i := range p {
 		off := 0
 		if i < n {
-			off = i * BlockSize // dummy lanes (i >= n) read chunk 0, discarded
+			off = i * ChunkSize // dummy lanes (i >= n) read chunk 0, discarded
 		}
 		p[i] = (*byte)(unsafe.Add(base, off))
 	}
@@ -244,7 +244,7 @@ func processLeavesRunArch(data []byte, n int, cvs *[256]byte) bool {
 // with leaf compression in one pass: on AVX-512 a 2-wide XMM pair at n == 2
 // (pair cost instead of a quad's masking setup), a 4-wide YMM quad for n in
 // 3..4, or an 8-wide pass for n in 5..8; on AVX2 a quad pass for n in 2..4.
-// input must be n*BlockSize contiguous bytes (S_0 then n-1 leaves) and final
+// input must be n*ChunkSize contiguous bytes (S_0 then n-1 leaves) and final
 // must be a zero sponge. On return, final holds the state after S_0 || marker
 // and cvs[32:n*32] the leaves' chain values.
 func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) bool {
@@ -270,16 +270,16 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 	default:
 		return false
 	}
-	final.pos = BlockSize%rate + len(kt12Marker) // mid-block after S_0 || marker
+	final.pos = ChunkSize%rate + len(kt12Marker) // mid-block after S_0 || marker
 	return true
 }
 
 // processS0LeavesTailArch fuses processS0LeavesArch with the trailing partial
 // leaf: one pass computes the final node's S_0 || marker state (lane 0), n-1
 // leaf CVs (cvs[32:n*32]), and absorbs the partial leaf's nShared whole
-// rate-blocks — read from input[n*BlockSize:] — into lane n, whose
+// rate-blocks — read from input[n*ChunkSize:] — into lane n, whose
 // mid-absorption state lands in pending for the caller to continue. input
-// must be at least n*BlockSize + nShared*rate contiguous bytes and final a
+// must be at least n*ChunkSize + nShared*rate contiguous bytes and final a
 // zero sponge. Lane n must be free: on AVX-512 a 4-wide YMM quad hosts n in
 // 2..3 and a masked 8-wide pass n in 4..7; a quad pass hosts n in 2..3 on
 // AVX2.
@@ -303,7 +303,7 @@ func processS0LeavesTailArch(input []byte, n, nShared int, final, pending *spong
 	default:
 		return false
 	}
-	final.pos = BlockSize%rate + len(kt12Marker) // mid-block after S_0 || marker
+	final.pos = ChunkSize%rate + len(kt12Marker) // mid-block after S_0 || marker
 	pending.pos = 0                              // whole rate-blocks absorbed
 	return true
 }
@@ -358,7 +358,7 @@ func processLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, part
 	if cpuid.HasAVX512 {
 		switch {
 		case n == 1:
-			processLeafPairPartialAVX512(unsafe.SliceData(trailing), unsafe.SliceData(trailing[BlockSize:]), uint64(nShared), &cvs[0], &partial.a[0])
+			processLeafPairPartialAVX512(unsafe.SliceData(trailing), unsafe.SliceData(trailing[ChunkSize:]), uint64(nShared), &cvs[0], &partial.a[0])
 		case n <= 3:
 			processLeavesQuadPartialAVX512(unsafe.SliceData(trailing), &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
 		default:

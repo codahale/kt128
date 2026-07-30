@@ -23,7 +23,7 @@ func TestProcessLeavesRunAVX2(t *testing.T) {
 	cpuid.HasAVX512 = false
 
 	for n := 2; n <= 7; n++ {
-		input := make([]byte, n*BlockSize)
+		input := make([]byte, n*ChunkSize)
 		for i := range input {
 			input[i] = byte(i*53 + i>>9)
 		}
@@ -41,7 +41,7 @@ func TestProcessLeavesPairAVX512(t *testing.T) {
 	if !cpuid.HasAVX512 {
 		t.Skip("no AVX-512")
 	}
-	input := make([]byte, 2*BlockSize)
+	input := make([]byte, 2*ChunkSize)
 	for i := range input {
 		input[i] = byte(i*29 + i>>6)
 	}
@@ -56,29 +56,29 @@ func BenchmarkPairVsRun(b *testing.B) {
 	if !cpuid.HasAVX512 {
 		b.Skip("no AVX-512")
 	}
-	input := make([]byte, 8*BlockSize)
+	input := make([]byte, 8*ChunkSize)
 	for i := range input {
 		input[i] = byte(i)
 	}
 	var cvs [256]byte
 
 	b.Run("pair_x2", func(b *testing.B) {
-		b.SetBytes(2 * BlockSize)
+		b.SetBytes(2 * ChunkSize)
 		for b.Loop() {
 			processLeavesPairAVX512(&input[0], &cvs[0])
 		}
 	})
 	for _, n := range []int{2, 4, 6} {
 		b.Run(fmt.Sprintf("run_n%d", n), func(b *testing.B) {
-			b.SetBytes(int64(n) * BlockSize)
+			b.SetBytes(int64(n) * ChunkSize)
 			for b.Loop() {
 				processLeavesRunAVX512(&input[0], &cvs[0], uint64(n))
 			}
 		})
 		b.Run(fmt.Sprintf("pairs_n%d", n), func(b *testing.B) {
-			b.SetBytes(int64(n) * BlockSize)
+			b.SetBytes(int64(n) * ChunkSize)
 			for b.Loop() {
-				for off := 0; off < n*BlockSize; off += 2 * BlockSize {
+				for off := 0; off < n*ChunkSize; off += 2 * ChunkSize {
 					processLeavesPairAVX512(&input[off], &cvs[0])
 				}
 			}
@@ -123,23 +123,23 @@ func TestAVX2MatchesAVX512(t *testing.T) {
 	}
 
 	sizes := []int{
-		0, 1, BlockSize, BlockSize + 1,
-		9 * BlockSize, 10 * BlockSize, 11 * BlockSize, 12 * BlockSize,
-		13 * BlockSize, 14 * BlockSize, 15 * BlockSize,
-		17*BlockSize + 123, 23*BlockSize + 4567, 64 * 1024, 1024 * 1024,
+		0, 1, ChunkSize, ChunkSize + 1,
+		9 * ChunkSize, 10 * ChunkSize, 11 * ChunkSize, 12 * ChunkSize,
+		13 * ChunkSize, 14 * ChunkSize, 15 * ChunkSize,
+		17*ChunkSize + 123, 23*ChunkSize + 4567, 64 * 1024, 1024 * 1024,
 		2 * 1024 * 1024, 8 * 1024 * 1024,
 		24137569, // the RFC vector that diverged under SDE -skx
 		// AVX2 S0-quad and quad-tail fusion shapes: 2..4-chunk messages,
 		// finalization remainders of 1..3 completes plus a partial, and both
 		// sides of the mod-8-equals-5 stranded-leaf exception.
-		2 * BlockSize, 3 * BlockSize, 4 * BlockSize,
-		4*BlockSize + BlockSize/2, 6*BlockSize + BlockSize/2,
-		9*BlockSize + BlockSize/2, 10*BlockSize + BlockSize/2,
-		5 * BlockSize, 5*BlockSize + rate, 13 * BlockSize, 13*BlockSize + rate - 1,
+		2 * ChunkSize, 3 * ChunkSize, 4 * ChunkSize,
+		4*ChunkSize + ChunkSize/2, 6*ChunkSize + ChunkSize/2,
+		9*ChunkSize + ChunkSize/2, 10*ChunkSize + ChunkSize/2,
+		5 * ChunkSize, 5*ChunkSize + rate, 13 * ChunkSize, 13*ChunkSize + rate - 1,
 		// S_0+tail fused shapes where the two families schedule differently:
 		// at two chunks AVX-512 rides only past the pair threshold while the
 		// AVX2 quad always rides; at three chunks both ride.
-		2*BlockSize + 300, 2*BlockSize + 8191, 3*BlockSize + 4096,
+		2*ChunkSize + 300, 2*ChunkSize + 8191, 3*ChunkSize + 4096,
 	}
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
@@ -147,13 +147,13 @@ func TestAVX2MatchesAVX512(t *testing.T) {
 		})
 	}
 
-	// Customized inputs. {BlockSize, 2*BlockSize+3} is the shape that diverged in
+	// Customized inputs. {ChunkSize, 2*ChunkSize+3} is the shape that diverged in
 	// TestWritePartitionInvariance under SDE -skx (two customization-suffix leaves
 	// drained by the run kernel).
 	customs := []struct{ msg, custom int }{
-		{BlockSize, 2*BlockSize + 3},
-		{1, BlockSize + 64},
-		{3 * BlockSize, 5*BlockSize + 7},
+		{ChunkSize, 2*ChunkSize + 3},
+		{1, ChunkSize + 64},
+		{3 * ChunkSize, 5*ChunkSize + 7},
 	}
 	for _, tc := range customs {
 		t.Run(fmt.Sprintf("%d_c%d", tc.msg, tc.custom), func(t *testing.T) {

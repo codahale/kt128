@@ -11,11 +11,11 @@ func TestProcessLeavesTail(t *testing.T) {
 	ran := false
 	for n := 1; n <= 7; n++ {
 		for _, headLen := range []int{0, 1, 7, 8, 167, 168, 169, 4096, 8063, 8064, 8188} {
-			input := make([]byte, n*BlockSize+headLen)
+			input := make([]byte, n*ChunkSize+headLen)
 			for i := range input {
 				input[i] = byte(i*17 + i>>5 + headLen + n)
 			}
-			head := input[n*BlockSize:]
+			head := input[n*ChunkSize:]
 
 			nShared := headLen / rate
 			var cvs [256]byte
@@ -54,26 +54,26 @@ func TestProcessLeavesTail(t *testing.T) {
 func TestPartialLeafFusionSizes(t *testing.T) {
 	for _, custom := range [][]byte{nil, []byte("domain")} {
 		for _, size := range []int{
-			3*BlockSize + 1, 3*BlockSize + BlockSize/2, 4*BlockSize - 1, 4 * BlockSize,
-			3*BlockSize + 32*rate - 1, 3*BlockSize + 32*rate,
-			5*BlockSize + 32*rate - 1, 5*BlockSize + 32*rate,
-			4*BlockSize + BlockSize/2, 5*BlockSize + BlockSize/2,
-			7*BlockSize + BlockSize/2, 8 * BlockSize, 8*BlockSize + 1,
+			3*ChunkSize + 1, 3*ChunkSize + ChunkSize/2, 4*ChunkSize - 1, 4 * ChunkSize,
+			3*ChunkSize + 32*rate - 1, 3*ChunkSize + 32*rate,
+			5*ChunkSize + 32*rate - 1, 5*ChunkSize + 32*rate,
+			4*ChunkSize + ChunkSize/2, 5*ChunkSize + ChunkSize/2,
+			7*ChunkSize + ChunkSize/2, 8 * ChunkSize, 8*ChunkSize + 1,
 			// Finalization remainders of 1..7 complete leaves plus a partial
 			// (amd64 tail-lane fusion; batched or serial elsewhere).
-			10*BlockSize + BlockSize/2, 12*BlockSize + BlockSize/2,
-			14*BlockSize + BlockSize/2, 16*BlockSize + BlockSize/2,
-			17*BlockSize + 200, 19*BlockSize + rate - 1,
+			10*ChunkSize + ChunkSize/2, 12*ChunkSize + ChunkSize/2,
+			14*ChunkSize + ChunkSize/2, 16*ChunkSize + ChunkSize/2,
+			17*ChunkSize + 200, 19*ChunkSize + rate - 1,
 			// Chunk counts of 1 mod 8, on both sides of the whole-rate-block
 			// tail threshold that decides amd64 S_0 fusion.
-			9*BlockSize + rate, 9*BlockSize + rate - 1, 17*BlockSize + 100,
+			9*ChunkSize + rate, 9*ChunkSize + rate - 1, 17*ChunkSize + 100,
 			// Ragged one-shots whose partial tail rides the fused S_0 pass
 			// (AVX-512), including both sides of the two-chunk threshold.
-			2*BlockSize + 26*rate, 2*BlockSize + 27*rate, 2*BlockSize + 8191,
-			3*BlockSize + rate, 6*BlockSize + 4096, 7*BlockSize + 8191,
+			2*ChunkSize + 26*rate, 2*ChunkSize + 27*rate, 2*ChunkSize + 8191,
+			3*ChunkSize + rate, 6*ChunkSize + 4096, 7*ChunkSize + 8191,
 		} {
 			msg := ptn(size)
-			for _, chunk := range []int{size, BlockSize, BlockSize - 1} {
+			for _, chunk := range []int{size, ChunkSize, ChunkSize - 1} {
 				h := New(custom)
 				for off := 0; off < len(msg); off += chunk {
 					_, _ = h.Write(msg[off:min(off+chunk, len(msg))])
@@ -99,9 +99,9 @@ func TestPartialLeafFusionSizes(t *testing.T) {
 func TestWritePendingContinuation(t *testing.T) { testWritePendingContinuation(t) }
 
 func testWritePendingContinuation(t *testing.T) {
-	for _, first := range []int{2*BlockSize + 4096, 3*BlockSize + 4096, 3*BlockSize + 4200, 7*BlockSize + 8191} {
-		room := BlockSize - first%BlockSize
-		for _, cont := range []int{0, 1, 100, 4096, room - 1, room, room + 1, room + BlockSize, room + 9*BlockSize + 17} {
+	for _, first := range []int{2*ChunkSize + 4096, 3*ChunkSize + 4096, 3*ChunkSize + 4200, 7*ChunkSize + 8191} {
+		room := ChunkSize - first%ChunkSize
+		for _, cont := range []int{0, 1, 100, 4096, room - 1, room, room + 1, room + ChunkSize, room + 9*ChunkSize + 17} {
 			msg := ptn(first + cont)
 			want := referenceKT128(msg, nil, 32)
 
@@ -137,11 +137,11 @@ func testProcessS0LeavesTail(t *testing.T) {
 	ran := false
 	for n := 2; n <= 7; n++ {
 		for _, tailLen := range []int{0, 1, 167, 168, 169, 4096, 8063, 8064, 8188} {
-			input := make([]byte, n*BlockSize+tailLen)
+			input := make([]byte, n*ChunkSize+tailLen)
 			for i := range input {
 				input[i] = byte(i*19 + i>>7 + tailLen + n)
 			}
-			tail := input[n*BlockSize:]
+			tail := input[n*ChunkSize:]
 			nShared := tailLen / rate
 
 			var final, pending sponge
@@ -152,14 +152,14 @@ func testProcessS0LeavesTail(t *testing.T) {
 			ran = true
 
 			var wantFinal sponge
-			wantFinal.absorb(input[:BlockSize])
+			wantFinal.absorb(input[:ChunkSize])
 			wantFinal.absorb(kt12Marker[:])
 			if final != wantFinal {
 				t.Errorf("n=%d tailLen=%d: final-node state:\n got %x pos=%d\nwant %x pos=%d",
 					n, tailLen, final.a, final.pos, wantFinal.a, wantFinal.pos)
 			}
 
-			checkLeafCVs(t, fmt.Sprintf("n=%d tailLen=%d: ", n, tailLen), input[BlockSize:], cvs[32:], n-1)
+			checkLeafCVs(t, fmt.Sprintf("n=%d tailLen=%d: ", n, tailLen), input[ChunkSize:], cvs[32:], n-1)
 
 			// Finishing the exported partial state must match a direct sponge
 			// over tail || suffix.

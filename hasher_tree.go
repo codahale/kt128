@@ -9,7 +9,7 @@ func (h *Hasher) startTreeMode() {
 // startTreeModeFused enters tree mode by computing the final node's
 // S_0 || marker state and the first n-1 leaves' chain values together in one
 // fused kernel pass, where a kernel exists. It requires an untouched Hasher
-// and n full chunks contiguous in p, and consumes p[:n*BlockSize]. With
+// and n full chunks contiguous in p, and consumes p[:n*ChunkSize]. With
 // tailBlocks > 0 the pass also absorbs the trailing partial chunk's first
 // tailBlocks whole rate-blocks — p must extend that far — into a pending
 // leaf state, consuming those bytes too (recorded in h.pendingLen).
@@ -20,7 +20,7 @@ func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 			return false
 		}
 		h.pendingLen = tailBlocks * rate
-	} else if !processS0LeavesArch(p[:n*BlockSize], n, &h.final, &cvs) {
+	} else if !processS0LeavesArch(p[:n*ChunkSize], n, &h.final, &cvs) {
 		return false
 	}
 	h.ds = treeDS
@@ -52,7 +52,7 @@ func (h *Hasher) fuseTrailingLeaves(trailing []byte, n int, head, suffix []byte)
 }
 
 // absorbTailLeaves processes the final leaves of the logical stream head || tail,
-// where head is the trailing < BlockSize message bytes and tail is the remaining
+// where head is the trailing < ChunkSize message bytes and tail is the remaining
 // customization suffix. The single leaf that straddles the head/tail boundary is
 // absorbed incrementally so neither slice is copied.
 func (h *Hasher) absorbTailLeaves(head, tail []byte) {
@@ -65,7 +65,7 @@ func (h *Hasher) absorbTailLeaves(head, tail []byte) {
 	// The straddling leaf takes as much of tail as fits: all of it when
 	// head || tail forms a single final partial leaf, leaving nothing for the
 	// contiguous pass below.
-	n := min(BlockSize-len(head), len(tail))
+	n := min(ChunkSize-len(head), len(tail))
 	var s sponge
 	s.absorb(head)
 	s.absorb(tail[:n])
@@ -78,13 +78,13 @@ func (h *Hasher) absorbTailLeaves(head, tail []byte) {
 // absorbContiguousLeaves processes data as zero or more full leaves followed by
 // an optional final partial leaf, feeding each chain value into h.final.
 func (h *Hasher) absorbContiguousLeaves(data []byte) {
-	nFull := len(data) / BlockSize
+	nFull := len(data) / ChunkSize
 	if nFull > 0 {
-		h.processLeafBatch(data[:nFull*BlockSize], nFull)
+		h.processLeafBatch(data[:nFull*ChunkSize], nFull)
 	}
-	if partial := len(data) - nFull*BlockSize; partial > 0 {
+	if partial := len(data) - nFull*ChunkSize; partial > 0 {
 		var s sponge
-		leafStateX1(data[nFull*BlockSize:], &s)
+		leafStateX1(data[nFull*ChunkSize:], &s)
 		h.final.absorbCV(&s)
 		h.leafCount++
 	}

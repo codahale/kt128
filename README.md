@@ -88,6 +88,7 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
 - `Clear` zeros message-derived state and resets the hasher for reuse while preserving its customization string.
 - `Equal` reports whether two hashers have identical state, returning 1 if equal and 0 otherwise, in constant time.
 - `Pos` returns the number of bytes written so far.
+- `Hasher.BlockSize()` reports the 168-byte TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.
 
 ## License
 

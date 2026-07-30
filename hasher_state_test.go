@@ -7,7 +7,7 @@ import (
 )
 
 func TestClone(t *testing.T) {
-	sizes := []int{0, 1, BlockSize - 1, BlockSize, BlockSize + 1, 83521}
+	sizes := []int{0, 1, ChunkSize - 1, ChunkSize, ChunkSize + 1, 83521}
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
 			msg := ptn(size)
@@ -33,7 +33,7 @@ func TestClone(t *testing.T) {
 
 	t.Run("independent after clone", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(BlockSize + 1))
+		_, _ = h.Write(ptn(ChunkSize + 1))
 
 		clone := h.Clone()
 
@@ -79,7 +79,7 @@ func TestEqual(t *testing.T) {
 
 	t.Run("clone", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(BlockSize + 1))
+		_, _ = h.Write(ptn(ChunkSize + 1))
 
 		clone := h.Clone()
 		if h.Equal(clone) != 1 {
@@ -164,12 +164,12 @@ func TestPos(t *testing.T) {
 
 func TestReset(t *testing.T) {
 	h := New(nil)
-	_, _ = h.Write(ptn(BlockSize + 1))
+	_, _ = h.Write(ptn(ChunkSize + 1))
 	h.Reset()
-	_, _ = h.Write(ptn(BlockSize + 1))
+	_, _ = h.Write(ptn(ChunkSize + 1))
 
 	fresh := New(nil)
-	_, _ = fresh.Write(ptn(BlockSize + 1))
+	_, _ = fresh.Write(ptn(ChunkSize + 1))
 
 	out1 := make([]byte, 64)
 	_, _ = h.Read(out1)
@@ -188,7 +188,7 @@ func TestClear(t *testing.T) {
 
 	// Fill the entire buffer allocation, including capacity beyond its length,
 	// so Clear must scrub storage that may retain bytes from earlier writes.
-	h.buf = make([]byte, BlockSize, BlockSize+257)
+	h.buf = make([]byte, ChunkSize, ChunkSize+257)
 	buffer := h.buf[:cap(h.buf)]
 	for i := range buffer {
 		buffer[i] = 0xA5
@@ -197,7 +197,7 @@ func TestClear(t *testing.T) {
 	h.final.a[0] = 1
 	h.final.a[lanes-1] = 2
 	h.final.pos = 17
-	h.pos = BlockSize
+	h.pos = ChunkSize
 	h.leafCount = 3
 	h.pendingLen = rate
 	h.state = stateFinalized
@@ -224,7 +224,7 @@ func TestClear(t *testing.T) {
 		t.Fatal("Clear did not preserve the customization string")
 	}
 
-	msg := ptn(BlockSize + 1)
+	msg := ptn(ChunkSize + 1)
 	_, _ = h.Write(msg)
 	got := make([]byte, 64)
 	_, _ = h.Read(got)
@@ -288,10 +288,13 @@ func TestResetPreservesCustomization(t *testing.T) {
 	}
 }
 
-func TestBlockSizeMethod(t *testing.T) {
+func TestBlockAndChunkSizes(t *testing.T) {
 	h := New(nil)
-	if got := h.BlockSize(); got != BlockSize {
-		t.Fatalf("BlockSize() = %d, want %d", got, BlockSize)
+	if got, want := h.BlockSize(), 168; got != want {
+		t.Fatalf("BlockSize() = %d, want %d", got, want)
+	}
+	if got, want := ChunkSize, 8192; got != want {
+		t.Fatalf("ChunkSize = %d, want %d", got, want)
 	}
 }
 

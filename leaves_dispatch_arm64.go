@@ -128,7 +128,7 @@ func processLeavesArch(_ []byte, _ *[256]byte) bool { return false }
 // processLeavesBatch5Arch computes 5 leaf CVs from 5 contiguous chunks via the
 // hybrid scalar/NEON kernel: chunks 0-3 as two x2 NEON pair passes and chunk 4
 // on the scalar pipes, woven into the NEON round stream. Input must be
-// 5*BlockSize contiguous bytes; the CVs land in cvs[:160].
+// 5*ChunkSize contiguous bytes; the CVs land in cvs[:160].
 func processLeavesBatch5Arch(input []byte, cvs *[256]byte) bool {
 	if !cpuid.HasSHA3 {
 		return false
@@ -144,8 +144,8 @@ func processLeavesTripleArch(input []byte, cvs *[256]byte) bool {
 		return false
 	}
 	var scalar sponge
-	processLeaves3ARM64(unsafe.SliceData(input), unsafe.SliceData(input[2*BlockSize:]), &cvs[0], &scalar.a[0])
-	scalar.absorbAll(input[2*BlockSize+25*rate:], leafDS)
+	processLeaves3ARM64(unsafe.SliceData(input), unsafe.SliceData(input[2*ChunkSize:]), &cvs[0], &scalar.a[0])
+	scalar.absorbAll(input[2*ChunkSize+25*rate:], leafDS)
 	scalar.squeeze(cvs[64:96])
 	return true
 }
@@ -172,8 +172,8 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 		return false
 	}
 	if n == 3 {
-		processLeaves3ARM64(unsafe.SliceData(input[BlockSize:]), unsafe.SliceData(input), &cvs[32], &final.a[0])
-		final.absorb(input[25*rate : BlockSize])
+		processLeaves3ARM64(unsafe.SliceData(input[ChunkSize:]), unsafe.SliceData(input), &cvs[32], &final.a[0])
+		final.absorb(input[25*rate : ChunkSize])
 		final.absorb(kt12Marker[:])
 		return true
 	}
@@ -181,7 +181,7 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 		return false
 	}
 	processS0LeafPairARM64(unsafe.SliceData(input), &final.a[0], &cvs[32])
-	final.pos = BlockSize%rate + len(kt12Marker) // mid-block after S_0 || marker
+	final.pos = ChunkSize%rate + len(kt12Marker) // mid-block after S_0 || marker
 	return true
 }
 
@@ -203,6 +203,6 @@ func processLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, part
 	if !cpuid.HasSHA3 || n != 1 {
 		return false
 	}
-	processLeafPairPartialARM64(unsafe.SliceData(trailing), unsafe.SliceData(trailing[BlockSize:]), uint64(nShared), &cvs[0], &partial.a[0])
+	processLeafPairPartialARM64(unsafe.SliceData(trailing), unsafe.SliceData(trailing[ChunkSize:]), uint64(nShared), &cvs[0], &partial.a[0])
 	return true
 }

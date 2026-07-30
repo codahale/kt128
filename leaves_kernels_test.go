@@ -10,8 +10,8 @@ import (
 func processLeavesGeneric(input []byte, cvs *[256]byte) {
 	for inst := range 8 {
 		var s sponge
-		off := inst * BlockSize
-		s.absorbAll(input[off:off+BlockSize], leafDS)
+		off := inst * ChunkSize
+		s.absorbAll(input[off:off+ChunkSize], leafDS)
 		// Extract CV = first 4 lanes (32 bytes).
 		s.squeeze(cvs[inst*32 : inst*32+32])
 	}
@@ -74,7 +74,7 @@ func checkLeafCVs(t *testing.T, prefix string, input, cvs []byte, n int) {
 	t.Helper()
 	for inst := range n {
 		var s sponge
-		leafStateX1(input[inst*BlockSize:(inst+1)*BlockSize], &s)
+		leafStateX1(input[inst*ChunkSize:(inst+1)*ChunkSize], &s)
 		var want [32]byte
 		s.squeeze(want[:])
 		if !bytes.Equal(cvs[inst*32:inst*32+32], want[:]) {
@@ -85,7 +85,7 @@ func checkLeafCVs(t *testing.T, prefix string, input, cvs []byte, n int) {
 
 // TestProcessLeavesPair checks the 2-wide pair kernel against the x1 leaf path.
 func TestProcessLeavesPair(t *testing.T) {
-	input := make([]byte, 2*BlockSize)
+	input := make([]byte, 2*ChunkSize)
 	for i := range input {
 		input[i] = byte(i*31 + i>>7)
 	}
@@ -102,7 +102,7 @@ func TestProcessLeavesPair(t *testing.T) {
 // the x1 leaf path. The scalar lane (chunk 4) and both NEON pairs must all
 // produce correct CVs.
 func TestProcessLeavesBatch5(t *testing.T) {
-	input := make([]byte, 5*BlockSize)
+	input := make([]byte, 5*ChunkSize)
 	for i := range input {
 		input[i] = byte(i*37 + i>>7)
 	}
@@ -116,7 +116,7 @@ func TestProcessLeavesBatch5(t *testing.T) {
 }
 
 func BenchmarkProcessLeavesBatch5(b *testing.B) {
-	input := make([]byte, 5*BlockSize)
+	input := make([]byte, 5*ChunkSize)
 	for i := range input {
 		input[i] = byte(i)
 	}
@@ -124,14 +124,14 @@ func BenchmarkProcessLeavesBatch5(b *testing.B) {
 	if !processLeavesBatch5Arch(input, &cvs) {
 		b.Skip("no batch5 kernel on this platform")
 	}
-	b.SetBytes(5 * BlockSize)
+	b.SetBytes(5 * ChunkSize)
 	for b.Loop() {
 		processLeavesBatch5Arch(input, &cvs)
 	}
 }
 
 func TestProcessLeavesTriple(t *testing.T) {
-	input := make([]byte, 3*BlockSize)
+	input := make([]byte, 3*ChunkSize)
 	for i := range input {
 		input[i] = byte(i*41 + i>>7)
 	}
@@ -144,7 +144,7 @@ func TestProcessLeavesTriple(t *testing.T) {
 }
 
 func BenchmarkProcessLeavesTriple(b *testing.B) {
-	input := make([]byte, 3*BlockSize)
+	input := make([]byte, 3*ChunkSize)
 	for i := range input {
 		input[i] = byte(i)
 	}
@@ -152,7 +152,7 @@ func BenchmarkProcessLeavesTriple(b *testing.B) {
 	if !processLeavesTripleArch(input, &cvs) {
 		b.Skip("no x3 kernel on this platform")
 	}
-	b.SetBytes(3 * BlockSize)
+	b.SetBytes(3 * ChunkSize)
 	for b.Loop() {
 		processLeavesTripleArch(input, &cvs)
 	}
@@ -165,7 +165,7 @@ func BenchmarkProcessLeavesTriple(b *testing.B) {
 func TestProcessS0Leaves(t *testing.T) {
 	ran := false
 	for n := 2; n <= availableLanes; n++ {
-		input := make([]byte, n*BlockSize)
+		input := make([]byte, n*ChunkSize)
 		for i := range input {
 			input[i] = byte(i*13 + i>>6 + n)
 		}
@@ -178,14 +178,14 @@ func TestProcessS0Leaves(t *testing.T) {
 		ran = true
 
 		var wantFinal sponge
-		wantFinal.absorb(input[:BlockSize])
+		wantFinal.absorb(input[:ChunkSize])
 		wantFinal.absorb(kt12Marker[:])
 		if final != wantFinal {
 			t.Errorf("n=%d: final-node state:\n got %x pos=%d\nwant %x pos=%d",
 				n, final.a, final.pos, wantFinal.a, wantFinal.pos)
 		}
 
-		checkLeafCVs(t, fmt.Sprintf("n=%d: ", n), input[BlockSize:], cvs[32:], n-1)
+		checkLeafCVs(t, fmt.Sprintf("n=%d: ", n), input[ChunkSize:], cvs[32:], n-1)
 	}
 	if !ran {
 		t.Skip("no fused S0+leaves kernel on this platform")
@@ -201,7 +201,7 @@ func TestProcessS0Leaves(t *testing.T) {
 
 func TestProcessLeavesRun(t *testing.T) {
 	for n := 2; n <= 7; n++ {
-		input := make([]byte, n*BlockSize)
+		input := make([]byte, n*ChunkSize)
 		for i := range input {
 			input[i] = byte(i*53 + i>>9)
 		}
@@ -220,13 +220,13 @@ func TestProcessLeavesRun(t *testing.T) {
 func BenchmarkLeafBatchRemainder(b *testing.B) {
 	for _, n := range []int{3, 5, 6, 7, 8, 13} {
 		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
-			input := make([]byte, n*BlockSize)
+			input := make([]byte, n*ChunkSize)
 			for i := range input {
 				input[i] = byte(i)
 			}
 			h := New(nil)
 			h.state = stateTree
-			b.SetBytes(int64(n * BlockSize))
+			b.SetBytes(int64(n * ChunkSize))
 			for b.Loop() {
 				h.final.reset()
 				h.leafCount = 0

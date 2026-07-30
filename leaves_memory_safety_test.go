@@ -138,36 +138,36 @@ func runLeafKernels(t *testing.T) {
 	// x8 fused kernel: reads exactly 8 contiguous chunks.
 	if hasLeafX8 {
 		expectNoFault(t, "processLeavesArch(x8)", func() {
-			processLeavesArch(guardedBuffer(t, 8*BlockSize), &cvs)
+			processLeavesArch(guardedBuffer(t, 8*ChunkSize), &cvs)
 		})
 	}
 
 	// Probe kernel availability with throwaway heap buffers so the guarded run
 	// below is a single, clean call.
 	var probe [256]byte
-	hasPair := processLeavesPairArch(make([]byte, 2*BlockSize), &probe)
-	hasRun := processLeavesRunArch(make([]byte, 2*BlockSize), 2, &probe)
-	hasBatch5 := processLeavesBatch5Arch(make([]byte, 5*BlockSize), &probe)
-	hasTriple := processLeavesTripleArch(make([]byte, 3*BlockSize), &probe)
+	hasPair := processLeavesPairArch(make([]byte, 2*ChunkSize), &probe)
+	hasRun := processLeavesRunArch(make([]byte, 2*ChunkSize), 2, &probe)
+	hasBatch5 := processLeavesBatch5Arch(make([]byte, 5*ChunkSize), &probe)
+	hasTriple := processLeavesTripleArch(make([]byte, 3*ChunkSize), &probe)
 
 	// x5 hybrid kernel (arm64): the scalar walker must end exactly at the
 	// buffer end and the NEON walkers within it.
 	if hasBatch5 {
 		expectNoFault(t, "processLeavesBatch5(x5)", func() {
-			processLeavesBatch5Arch(guardedBuffer(t, 5*BlockSize), &cvs)
+			processLeavesBatch5Arch(guardedBuffer(t, 5*ChunkSize), &cvs)
 		})
 	}
 
 	if hasTriple {
 		expectNoFault(t, "processLeavesTriple(x3)", func() {
-			processLeavesTripleArch(guardedBuffer(t, 3*BlockSize), &cvs)
+			processLeavesTripleArch(guardedBuffer(t, 3*ChunkSize), &cvs)
 		})
 	}
 
 	// x2 pair kernel (arm64): reads exactly 2 contiguous chunks.
 	if hasPair {
 		expectNoFault(t, "processLeavesPair(x2)", func() {
-			processLeavesPairArch(guardedBuffer(t, 2*BlockSize), &cvs)
+			processLeavesPairArch(guardedBuffer(t, 2*ChunkSize), &cvs)
 		})
 	}
 
@@ -176,10 +176,10 @@ func runLeafKernels(t *testing.T) {
 	for n := 2; n <= availableLanes; n++ {
 		var probeFinal sponge
 		var probeCVs [256]byte
-		if !processS0LeavesArch(make([]byte, n*BlockSize), n, &probeFinal, &probeCVs) {
+		if !processS0LeavesArch(make([]byte, n*ChunkSize), n, &probeFinal, &probeCVs) {
 			continue
 		}
-		buf := guardedBuffer(t, n*BlockSize)
+		buf := guardedBuffer(t, n*ChunkSize)
 		var final sponge
 		var cvs [256]byte
 		expectNoFault(t, fmt.Sprintf("processS0Leaves(n=%d)", n), func() {
@@ -194,11 +194,11 @@ func runLeafKernels(t *testing.T) {
 	for n := 2; n <= 7; n++ {
 		var probeFinal, probePending sponge
 		var probeCVs [256]byte
-		if !processS0LeavesTailArch(make([]byte, n*BlockSize), n, 0, &probeFinal, &probePending, &probeCVs) {
+		if !processS0LeavesTailArch(make([]byte, n*ChunkSize), n, 0, &probeFinal, &probePending, &probeCVs) {
 			continue
 		}
 		for _, nShared := range []int{0, 24, 48} {
-			buf := guardedBuffer(t, n*BlockSize+nShared*rate)
+			buf := guardedBuffer(t, n*ChunkSize+nShared*rate)
 			var final, pending sponge
 			var cvsOut [256]byte
 			expectNoFault(t, fmt.Sprintf("processS0LeavesTail(n=%d,nShared=%d)", n, nShared), func() {
@@ -211,25 +211,25 @@ func runLeafKernels(t *testing.T) {
 	// n-chunk buffer. A clamping bug would read chunk n (past the guard).
 	if hasRun {
 		for n := 2; n <= 7; n++ {
-			buf := guardedBuffer(t, n*BlockSize)
+			buf := guardedBuffer(t, n*ChunkSize)
 			expectNoFault(t, fmt.Sprintf("processLeavesRun(n=%d)", n), func() {
 				processLeavesRunArch(buf, n, &cvs)
 			})
 		}
 	}
 
-	// Trailing-leaves+partial kernel: reads exactly n*BlockSize complete-chunk
+	// Trailing-leaves+partial kernel: reads exactly n*ChunkSize complete-chunk
 	// bytes plus nShared whole rate-blocks of the head. On AVX-512 the tail
 	// lane is re-clamped to a dummy after its blocks; a wrong clamp or an
 	// unclamped walk past the head reads the guard.
 	for n := 1; n <= 7; n++ {
 		var probeCVs [256]byte
 		var probeSponge sponge
-		if !processLeavesTailArch(make([]byte, n*BlockSize), n, 0, &probeCVs, &probeSponge) {
+		if !processLeavesTailArch(make([]byte, n*ChunkSize), n, 0, &probeCVs, &probeSponge) {
 			continue
 		}
 		const headLen = 25 * rate
-		buf := guardedBuffer(t, n*BlockSize+headLen)
+		buf := guardedBuffer(t, n*ChunkSize+headLen)
 		var cvsOut [256]byte
 		var s sponge
 		expectNoFault(t, fmt.Sprintf("processLeavesTail(n=%d)", n), func() {

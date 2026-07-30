@@ -9,13 +9,13 @@ func TestWritePartitionInvariance(t *testing.T) {
 	// Sizes clustered around chunk and SIMD-batch boundaries.
 	interesting := []int{
 		0, 1, 2, 167, 168, 169,
-		BlockSize - 2, BlockSize - 1, BlockSize, BlockSize + 1, BlockSize + 2,
-		2*BlockSize - 1, 2 * BlockSize, 2*BlockSize + 1,
-		7 * BlockSize, 8*BlockSize - 1, 8 * BlockSize, 8*BlockSize + 1,
-		9 * BlockSize, 8*BlockSize + 168, 12345, 83521,
+		ChunkSize - 2, ChunkSize - 1, ChunkSize, ChunkSize + 1, ChunkSize + 2,
+		2*ChunkSize - 1, 2 * ChunkSize, 2*ChunkSize + 1,
+		7 * ChunkSize, 8*ChunkSize - 1, 8 * ChunkSize, 8*ChunkSize + 1,
+		9 * ChunkSize, 8*ChunkSize + 168, 12345, 83521,
 	}
-	customs := []int{0, 1, 41, BlockSize - 4, BlockSize, BlockSize + 7, 2*BlockSize + 3}
-	chunks := []int{1, 7, 168, 8191, BlockSize, BlockSize + 1, 3 * BlockSize}
+	customs := []int{0, 1, 41, ChunkSize - 4, ChunkSize, ChunkSize + 7, 2*ChunkSize + 3}
+	chunks := []int{1, 7, 168, 8191, ChunkSize, ChunkSize + 1, 3 * ChunkSize}
 
 	for _, msgLen := range interesting {
 		msg := ptn(msgLen)
@@ -55,7 +55,7 @@ func TestReadPartitionInvariance(t *testing.T) {
 
 	// Single-node, chunk-boundary, and tree-mode messages give the final sponge
 	// different contents to squeeze from.
-	msgs := []int{0, 1, BlockSize - 1, BlockSize, BlockSize + 1, 9 * BlockSize}
+	msgs := []int{0, 1, ChunkSize - 1, ChunkSize, ChunkSize + 1, 9 * ChunkSize}
 	chunks := []int{1, 2, 3, 7, 8, 9, 167, 168, 169, 333}
 
 	for _, msgLen := range msgs {

@@ -21,7 +21,7 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		// leaving a pending partially-absorbed leaf.
 		nFuse, nTail := 0, 0
 		if h.pos == 0 {
-			chunks, tail := len(p)/BlockSize, len(p)%BlockSize
+			chunks, tail := len(p)/ChunkSize, len(p)%ChunkSize
 			nFuse = fuseS0Chunks(chunks, tail)
 			if nFuse == chunks {
 				nTail = fuseS0TailBlocks(chunks, tail)
@@ -30,14 +30,14 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		if nFuse >= 2 && h.startTreeModeFused(p, nFuse, nTail) {
 			// The rest of p is ordinary leaf data — or, with a pending
 			// leaf, its ragged remnant, buffered by extendPending below.
-			p = p[nFuse*BlockSize+h.pendingLen:]
+			p = p[nFuse*ChunkSize+h.pendingLen:]
 			fusedS0 = true
 		} else {
 			// Single-node finalization and tree-mode S_0 absorb the first
 			// chunk into the final node identically, so message bytes are
 			// absorbed eagerly with no buffering; the two modes diverge only
 			// once the input exceeds one chunk.
-			room := BlockSize - int(h.pos)
+			room := ChunkSize - int(h.pos)
 			if len(p) <= room {
 				h.final.absorb(p)
 				h.pos += uint64(n)
@@ -66,7 +66,7 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	// (+11..38% at 80..120 KiB one-shots, Emerald Rapids). A ragged tail
 	// still buffers whole so its trailing chunks can ride a fused pass with
 	// the partial at finalization.
-	if r := len(p) / BlockSize; fusedS0 && r >= 2 && len(p) == r*BlockSize {
+	if r := len(p) / ChunkSize; fusedS0 && r >= 2 && len(p) == r*ChunkSize {
 		h.processLeafBatch(p, r)
 		return n, nil
 	}
@@ -79,12 +79,12 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	// below so buffered chunks aren't pushed through narrow kernels
 	// prematurely; where flushChunks() == streamChunks this reduces to the
 	// flush-unit threshold alone.
-	if len(p) >= flush*BlockSize && (len(h.buf) == 0 || len(p) >= lanes*BlockSize) {
+	if len(p) >= flush*ChunkSize && (len(h.buf) == 0 || len(p) >= lanes*ChunkSize) {
 		// Drain any buffered data: complete the partial tail with bytes from
 		// p, then flush all buffered chunks as a single batch.
 		if len(h.buf) > 0 {
-			if partial := len(h.buf) % BlockSize; partial != 0 {
-				need := BlockSize - partial
+			if partial := len(h.buf) % ChunkSize; partial != 0 {
+				need := ChunkSize - partial
 				h.bufferTail(p[:need])
 				p = p[need:]
 			}
@@ -93,23 +93,23 @@ func (h *Hasher) Write(p []byte) (int, error) {
 			// draining it. The bounded copy avoids sending a small buffered
 			// remainder through a narrow kernel when this write can fill all
 			// lanes.
-			if buffered := len(h.buf) / BlockSize; buffered < lanes && len(p) >= (lanes-buffered)*BlockSize {
-				take := (lanes - buffered) * BlockSize
+			if buffered := len(h.buf) / ChunkSize; buffered < lanes && len(p) >= (lanes-buffered)*ChunkSize {
+				take := (lanes - buffered) * ChunkSize
 				h.bufferTail(p[:take])
 				p = p[take:]
 			}
-			h.processLeafBatch(h.buf, len(h.buf)/BlockSize)
+			h.processLeafBatch(h.buf, len(h.buf)/ChunkSize)
 			h.buf = h.buf[:0]
 		}
 
 		// Flush the architecture-selected complete-chunk prefix in place.
 		// Complete message leaves need no lookahead, since the customization
 		// suffix added at finalization is always non-empty.
-		processable := len(p) / BlockSize
+		processable := len(p) / ChunkSize
 		nFlush := directFlushChunks(processable)
 		if nFlush > 0 {
-			h.processLeafBatch(p[:nFlush*BlockSize], nFlush)
-			p = p[nFlush*BlockSize:]
+			h.processLeafBatch(p[:nFlush*ChunkSize], nFlush)
+			p = p[nFlush*ChunkSize:]
 		}
 
 		// A chunk-aligned remainder of two or more after a whole-unit flush
@@ -123,7 +123,7 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		// finalization costs the same, and a later write may pair it — and a
 		// ragged tail still buffers whole, so its trailing chunks can ride a
 		// fused pass with the partial at finalization.
-		if r := len(p) / BlockSize; nFlush > 0 && r >= 2 && len(p) == r*BlockSize {
+		if r := len(p) / ChunkSize; nFlush > 0 && r >= 2 && len(p) == r*ChunkSize {
 			h.processLeafBatch(p, r)
 			p = p[:0]
 		}
@@ -135,10 +135,10 @@ func (h *Hasher) Write(p []byte) (int, error) {
 
 	// Streaming path: accumulate in buf, flush in whole flush units.
 	h.bufferTail(p)
-	if processable := len(h.buf) / BlockSize; processable >= lanes {
+	if processable := len(h.buf) / ChunkSize; processable >= lanes {
 		nFlush := (processable / lanes) * lanes
-		h.processLeafBatch(h.buf[:nFlush*BlockSize], nFlush)
-		remaining := copy(h.buf, h.buf[nFlush*BlockSize:])
+		h.processLeafBatch(h.buf[:nFlush*ChunkSize], nFlush)
+		remaining := copy(h.buf, h.buf[nFlush*ChunkSize:])
 		h.buf = h.buf[:remaining]
 	}
 	return n, nil
@@ -160,7 +160,7 @@ func (h *Hasher) bufferTail(p []byte) {
 // high-water mark (or need, if larger). Kept out of bufferTail so the no-grow
 // fast path stays within the inlining budget.
 func (h *Hasher) growBuf(need int) {
-	grown := make([]byte, len(h.buf), max(need, (streamChunks+1)*BlockSize))
+	grown := make([]byte, len(h.buf), max(need, (streamChunks+1)*ChunkSize))
 	copy(grown, h.buf)
 	h.buf = grown
 }
@@ -193,8 +193,8 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 			n5--
 		}
 		for range n5 {
-			off := idx * BlockSize
-			if !processLeavesBatch5Arch(data[off:off+5*BlockSize], &cvs) {
+			off := idx * ChunkSize
+			if !processLeavesBatch5Arch(data[off:off+5*ChunkSize], &cvs) {
 				break
 			}
 			h.final.absorbCVs(cvs[:160])
@@ -203,8 +203,8 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	}
 
 	for hasLeafX8 && idx+8 <= nLeaves {
-		off := idx * BlockSize
-		if !processLeavesArch(data[off:off+8*BlockSize], &cvs) {
+		off := idx * ChunkSize
+		if !processLeavesArch(data[off:off+8*ChunkSize], &cvs) {
 			break
 		}
 		h.final.absorbCVs(cvs[:])
@@ -213,7 +213,7 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 
 	// A three-leaf remainder can use the arm64 hybrid x3 kernel: one scalar
 	// leaf advances alongside a NEON pair, then finishes after the pair closes.
-	if rem := nLeaves - idx; rem == 3 && processLeavesTripleArch(data[idx*BlockSize:nLeaves*BlockSize], &cvs) {
+	if rem := nLeaves - idx; rem == 3 && processLeavesTripleArch(data[idx*ChunkSize:nLeaves*ChunkSize], &cvs) {
 		h.final.absorbCVs(cvs[:96])
 		idx += 3
 	}
@@ -224,8 +224,8 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	// the fastest narrow option at any remainder, while on amd64 a pair beats
 	// the flat masked run pass only for a remainder of exactly two.
 	for idx+2 <= nLeaves && nLeaves-idx <= pairRemainderMax {
-		off := idx * BlockSize
-		if !processLeavesPairArch(data[off:off+2*BlockSize], &cvs) {
+		off := idx * ChunkSize
+		if !processLeavesPairArch(data[off:off+2*ChunkSize], &cvs) {
 			break
 		}
 		h.final.absorbCVs(cvs[:64])
@@ -234,7 +234,7 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 
 	// Drain a 2..7 leaf remainder in one direct-read masked-gather pass where a
 	// run kernel exists (amd64 AVX-512), again with no scratch buffer.
-	if rem := nLeaves - idx; rem >= 2 && processLeavesRunArch(data[idx*BlockSize:nLeaves*BlockSize], rem, &cvs) {
+	if rem := nLeaves - idx; rem >= 2 && processLeavesRunArch(data[idx*ChunkSize:nLeaves*ChunkSize], rem, &cvs) {
 		h.final.absorbCVs(cvs[:rem*32])
 		idx += rem
 	}
@@ -243,8 +243,8 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	// 1..7 leaf remainder on platforms without a pair or run kernel.
 	for idx < nLeaves {
 		var s1 sponge
-		off := idx * BlockSize
-		leafStateX1(data[off:off+BlockSize], &s1)
+		off := idx * ChunkSize
+		leafStateX1(data[off:off+ChunkSize], &s1)
 		h.final.absorbCV(&s1)
 		idx++
 	}
@@ -254,7 +254,7 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 
 func (h *Hasher) extendPending(p []byte) []byte {
 	pending := pendingSponge(&h.pending)
-	room := BlockSize - h.pendingLen - len(h.buf)
+	room := ChunkSize - h.pendingLen - len(h.buf)
 	if len(p) < room {
 		h.bufferTail(p)
 		return nil

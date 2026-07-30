@@ -28,7 +28,7 @@ func TestWriteForceGenericFallback(t *testing.T) {
 	}
 
 	for _, size := range []int{
-		0, BlockSize, 2 * BlockSize, 9*BlockSize + 137, 1024 * 1024,
+		0, ChunkSize, 2 * ChunkSize, 9*ChunkSize + 137, 1024 * 1024,
 	} {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
 			msg := ptn(size)
@@ -89,10 +89,10 @@ func TestARM64DirectWriteUsesBatch5(t *testing.T) {
 	if !cpuid.HasSHA3 {
 		t.Skip("no SHA3 extension")
 	}
-	msg := ptn(7 * BlockSize)
+	msg := ptn(7 * ChunkSize)
 	h := New(nil)
-	_, _ = h.Write(msg[:2*BlockSize])
-	_, _ = h.Write(msg[2*BlockSize:])
+	_, _ = h.Write(msg[:2*ChunkSize])
+	_, _ = h.Write(msg[2*ChunkSize:])
 
 	if h.leafCount != 6 {
 		t.Fatalf("leaf count = %d, want 6", h.leafCount)
@@ -112,22 +112,22 @@ func BenchmarkARM64TripleVsPairScalar(b *testing.B) {
 	if !cpuid.HasSHA3 {
 		b.Skip("no SHA3 extension")
 	}
-	input := ptn(3 * BlockSize)
+	input := ptn(3 * ChunkSize)
 	var cvs [256]byte
 
 	b.Run("hybrid", func(b *testing.B) {
-		b.SetBytes(3 * BlockSize)
+		b.SetBytes(3 * ChunkSize)
 		for b.Loop() {
 			processLeavesTripleArch(input, &cvs)
 		}
 	})
 
 	b.Run("pair_scalar", func(b *testing.B) {
-		b.SetBytes(3 * BlockSize)
+		b.SetBytes(3 * ChunkSize)
 		for b.Loop() {
 			processLeavesPairARM64(&input[0], &cvs[0])
 			var scalar sponge
-			leafStateX1(input[2*BlockSize:], &scalar)
+			leafStateX1(input[2*ChunkSize:], &scalar)
 			scalar.squeeze(cvs[64:96])
 		}
 	})

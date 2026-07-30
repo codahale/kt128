@@ -37,11 +37,11 @@ func customSuffix(dst []byte, c []byte) []byte {
 }
 
 // startTreeMode switches to tree mode: the final node has absorbed exactly
-// BlockSize bytes of S_0, so absorb the KT12 marker after it.
+// ChunkSize bytes of S_0, so absorb the KT12 marker after it.
 
 func (h *Hasher) absorbMessage(suffix []byte) {
 	if h.state == stateSingle {
-		room := BlockSize - int(h.pos)
+		room := ChunkSize - int(h.pos)
 		if len(suffix) <= room {
 			// Single-node: KT128 single-node finalization.
 			h.ds = singleDS
@@ -66,7 +66,7 @@ func (h *Hasher) absorbMessage(suffix []byte) {
 		pending.absorb(buf)
 		// The pending leaf takes as much of the suffix as fits; any
 		// remainder forms the last leaves.
-		n := min(BlockSize-h.pendingLen-len(buf), len(suffix))
+		n := min(ChunkSize-h.pendingLen-len(buf), len(suffix))
 		pending.absorb(suffix[:n])
 		pending.padPermute(leafDS)
 		h.final.absorbCV(pending)
@@ -75,23 +75,23 @@ func (h *Hasher) absorbMessage(suffix []byte) {
 	} else {
 		// Tree mode: process buf || suffix as leaves S_1, S_2, ... plus terminator.
 		// Complete leaves lying entirely within buf use the SIMD batch path
-		// directly; head holds the trailing < BlockSize message bytes, so the
+		// directly; head holds the trailing < ChunkSize message bytes, so the
 		// remaining logical data after them is head || suffix.
-		nFull := len(buf) / BlockSize
-		head := buf[nFull*BlockSize:]
+		nFull := len(buf) / ChunkSize
+		head := buf[nFull*ChunkSize:]
 
 		// Partial-leaf fusion: when the remaining data forms a single partial
 		// leaf, fold an arch-chosen count of trailing complete leaves and the
 		// partial leaf's whole rate-blocks into one kernel pass; leading leaves
 		// take the batch path.
-		if n := fuseTailChunks(nFull, len(head)/rate); n > 0 && len(head)+len(suffix) < BlockSize {
+		if n := fuseTailChunks(nFull, len(head)/rate); n > 0 && len(head)+len(suffix) < ChunkSize {
 			if lead := nFull - n; lead > 0 {
-				h.processLeafBatch(buf[:lead*BlockSize], lead)
+				h.processLeafBatch(buf[:lead*ChunkSize], lead)
 			}
-			h.fuseTrailingLeaves(buf[(nFull-n)*BlockSize:], n, head, suffix)
+			h.fuseTrailingLeaves(buf[(nFull-n)*ChunkSize:], n, head, suffix)
 		} else {
 			if nFull > 0 {
-				h.processLeafBatch(buf[:nFull*BlockSize], nFull)
+				h.processLeafBatch(buf[:nFull*ChunkSize], nFull)
 			}
 			h.absorbTailLeaves(head, suffix)
 		}
@@ -108,7 +108,7 @@ func (h *Hasher) absorbMessage(suffix []byte) {
 // leaf's whole rate-blocks share one kernel pass, and the partial leaf's
 // ragged tail and padding finish in Go from the kernel-exported state.
 // trailing holds the n complete chunks followed by head; head and suffix
-// together must be less than BlockSize bytes.
+// together must be less than ChunkSize bytes.
 
 func lengthEncode(b []byte, value uint64) []byte {
 	if value == 0 {
