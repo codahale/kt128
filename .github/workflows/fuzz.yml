@@ -91,8 +91,8 @@ jobs:
         # the AVX-512 fuzzers would silently skip (and FuzzHasher would fuzz the
         # AVX2 path), and "no fuzz tests to fuzz" exits 0 — a green run that tested
         # nothing.
-        $SDE_PATH/sde64 -${{ matrix.chip }} -- ./kt128.test -test.run '^TestExpectedISA$' -test.v
-        $SDE_PATH/sde64 -${{ matrix.chip }} -- ./kt128.test \
+        "$SDE_PATH/sde64" -${{ matrix.chip }} -- ./kt128.test -test.run '^TestExpectedISA$' -test.v
+        "$SDE_PATH/sde64" -${{ matrix.chip }} -- ./kt128.test \
           -test.run '^$' -test.fuzz '^${{ matrix.target }}$' \
           -test.fuzztime "${FUZZITERATIONS}x" -test.fuzzcachedir "$(go env GOCACHE)/fuzz"
 

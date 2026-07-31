@@ -104,7 +104,7 @@ jobs:
         KT128_EXPECT_AVX512: ${{ matrix.target.expect512 }}
         KT128_EXPECT_AVX2: ${{ matrix.target.expect2 }}
         KT128_EXPECT_BMI2: ${{ matrix.target.expectBMI2 }}
-      run: $SDE_PATH/sde64 -${{ matrix.target.chip }} -- ./kt128.test -test.v -test.timeout 20m
+      run: '"$SDE_PATH/sde64" -${{ matrix.target.chip }} -- ./kt128.test -test.v -test.timeout 20m'
 
   bigendian:
     name: Big-endian (s390x)
