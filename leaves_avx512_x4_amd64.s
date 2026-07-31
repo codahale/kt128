@@ -190,9 +190,10 @@ leaves_quad_avx512_loop:
 // complete chunks in lanes 0..n-1 plus a trailing partial leaf in lane n,
 // whose data starts at input+n*8192 and participates for its nShared whole
 // 168-byte stripes. After those stripes lane n's 25-lane state is written to
-// lane1 for the Go caller to finish, the lane is masked off, and the complete
-// lanes run their remaining stripes and padded final block. CVs for all 4 lanes
-// are scattered into cvs; the caller reads the first n.
+// lane1 for the Go caller to finish, the lane is re-clamped to chunk 0 as an
+// in-bounds dummy, and the complete lanes run their remaining stripes and
+// padded final block. CVs for all 4 lanes are scattered into cvs; the caller
+// reads the first n.
 //
 // Reads exactly n*8192 complete-chunk bytes and nShared*168 tail bytes.
 // nShared must be in [0, 48].
@@ -265,9 +266,9 @@ quad_partial_export:
 	VPCOMPRESSQ	Y23, K2, Y25; VMOVQ	X25, R9; MOVQ	R9, 184(SI)
 	VPCOMPRESSQ	Y24, K2, Y25; VMOVQ	X25, R9; MOVQ	R9, 192(SI)
 
-	// The tail lane is dead from here on. Remove it from the gather mask so
-	// only the n complete lanes can access memory.
-	SHRL	$1, R14
+	// The tail lane is dead from here on. Keep the gather mask stable and
+	// re-clamp the lane to chunk 0 so its remaining reads stay in bounds.
+	MOVQ	$0, 0(SP)(AX*8)
 
 	TESTQ	R12, R12
 	JZ	quad_partial_final
@@ -427,8 +428,8 @@ s0quad_avx512_loop:
 // complete leaves (lanes 1..n-1), and the trailing partial leaf (lane n),
 // which participates for its nShared whole 168-byte stripes starting at
 // input+n*8192. After those stripes lane n's 25-lane state is written to
-// tail for the Go caller to continue, the lane is masked off, and the
-// remaining stripes and last block proceed as in
+// tail for the Go caller to continue, the lane is re-clamped to chunk 0 as an
+// in-bounds dummy, and the remaining stripes and last block proceed as in
 // processS0LeavesQuadAVX512. Leaf CVs land in cvs slots 1..n-1.
 //
 // Reads exactly n*8192 chunk bytes and nShared*168 tail bytes. n must be
@@ -503,9 +504,9 @@ s0quad_tail_export:
 	VPCOMPRESSQ	Y23, K2, Y25; VMOVQ	X25, R9; MOVQ	R9, 184(R8)
 	VPCOMPRESSQ	Y24, K2, Y25; VMOVQ	X25, R9; MOVQ	R9, 192(R8)
 
-	// The tail lane is dead from here on. Remove it from the gather mask so
-	// only S_0 and the complete leaves can access memory.
-	SHRL	$1, R14
+	// The tail lane is dead from here on. Keep the gather mask stable and
+	// re-clamp the lane to chunk 0 so its remaining reads stay in bounds.
+	MOVQ	$0, 0(SP)(AX*8)
 
 	TESTQ	R12, R12
 	JZ	s0quad_tail_final

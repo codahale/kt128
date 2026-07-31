@@ -311,9 +311,9 @@ leaves_run_avx512_loop:
 // whose data starts at input+n*8192 and participates for its nShared whole
 // 168-byte stripes. After those stripes lane n's 25-lane state is written to
 // lane1 for the Go caller to finish (ragged tail, padding, and closing
-// permutation), the lane is masked off, and the complete lanes run their
-// remaining stripes and padded final block. CVs for all 8 lanes are scattered
-// into cvs; the caller reads the first n.
+// permutation), the lane is re-clamped to chunk 0 as an in-bounds dummy, and
+// the complete lanes run their remaining stripes and padded final block. CVs
+// for all 8 lanes are scattered into cvs; the caller reads the first n.
 //
 // Reads exactly n*8192 complete-chunk bytes and nShared*168 tail bytes.
 // nShared must be in [0, 48].
@@ -391,9 +391,9 @@ run_partial_export:
 	VPCOMPRESSQ	Z23, K2, Z25; VMOVQ X25, R9; MOVQ R9, 184(SI)
 	VPCOMPRESSQ	Z24, K2, Z25; VMOVQ X25, R9; MOVQ R9, 192(SI)
 
-	// The tail lane is dead from here on. Remove it from the gather mask so
-	// only the n complete lanes can access memory.
-	SHRL	$1, R14
+	// The tail lane is dead from here on. Keep the gather mask stable and
+	// re-clamp the lane to chunk 0 so its remaining reads stay in bounds.
+	MOVQ	$0, 0(SP)(AX*8)
 
 	TESTQ	R12, R12
 	JZ	run_partial_final
@@ -576,8 +576,8 @@ s0leaves_avx512_loop:
 // which participates for its nShared whole 168-byte stripes starting at
 // input+n*8192. After those stripes lane n's 25-lane state is written to
 // tail for the Go caller to continue (more absorption, or the ragged end
-// and padding), the lane is masked off, and the remaining stripes and last
-// block proceed as in processS0LeavesAVX512:
+// and padding), the lane is re-clamped to chunk 0 as an in-bounds dummy, and
+// the remaining stripes and last block proceed as in processS0LeavesAVX512:
 // the marker word for lane 0, DS and pad10*1 for the leaf lanes, the
 // final-node state extracted to state before the closing permutation.
 // Leaf CVs land in cvs slots 1..n-1; slot 0 and dummy slots hold garbage.
@@ -659,9 +659,9 @@ s0tail_export:
 	VPCOMPRESSQ	Z23, K2, Z25; VMOVQ X25, R9; MOVQ R9, 184(R8)
 	VPCOMPRESSQ	Z24, K2, Z25; VMOVQ X25, R9; MOVQ R9, 192(R8)
 
-	// The tail lane is dead from here on. Remove it from the gather mask so
-	// only S_0 and the complete leaves can access memory.
-	SHRL	$1, R14
+	// The tail lane is dead from here on. Keep the gather mask stable and
+	// re-clamp the lane to chunk 0 so its remaining reads stay in bounds.
+	MOVQ	$0, 0(SP)(AX*8)
 
 	TESTQ	R12, R12
 	JZ	s0tail_final
