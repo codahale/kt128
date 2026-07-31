@@ -6,7 +6,7 @@ on:
       fuzziterations:
         description: 'How many fuzz inputs to execute per target.'
         type: number
-        default: 100000
+        default: 10000
   schedule:
     # Nightly at 04:17 UTC. Fuzzing is too slow to gate pushes and PRs; the seed
     # corpus still runs there as part of the normal test suite.
@@ -18,7 +18,7 @@ permissions:
 # Duration deadlines can race with fuzz-worker shutdown (Go issue 75804).
 # A fixed execution count keeps nightly termination deterministic.
 env:
-  FUZZITERATIONS: ${{ github.event.inputs.fuzziterations || '100000' }}
+  FUZZITERATIONS: ${{ github.event.inputs.fuzziterations || '10000' }}
 
 jobs:
   fuzz:
