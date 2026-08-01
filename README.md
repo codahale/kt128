@@ -11,7 +11,7 @@ arbitrary-length output, customization strings, and optimized tree hashing for l
 - Switches to tree mode once the input exceeds one 8192-byte chunk.
 - Uses optimized assembly on `amd64` and `arm64`.
 - Falls back to pure Go on other targets, or with `-tags purego`.
-- Exposes `Clone`, `Reset`, `Equal`, and `Pos` helpers.
+- Exposes `Clone`, `Reset`, `Clear`, and `Pos` helpers.
 
 ## Requirements
 
@@ -99,10 +99,6 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
   best effort to zero all hasher-owned state, including the customization string; discard the hasher afterward and
   create a new one for subsequent hashing. Caller-owned buffers, independent clones, runtime copies, and registers are
   outside its scope.
-- `Equal` reports whether the first 32 output bytes from two absorbing hashers are equal, returning 1 if equal and 0
-  otherwise. It panics if either hasher has been finalized by any call to `Read`, including a zero-length read. For
-  fixed input lengths and lifecycle states, its work is independent of the absorbed byte values; it does not conceal
-  input or buffered lengths.
 - `Pos` returns the number of bytes written so far. It is exact below 2^64 bytes and wraps modulo 2^64 for longer
   streams without an intervening `Reset` or `Clear`.
 - `Hasher.BlockSize()` reports the 168-byte TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.

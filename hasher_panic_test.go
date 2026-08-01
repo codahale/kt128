@@ -34,24 +34,6 @@ func TestPanics(t *testing.T) {
 		})
 	})
 
-	// Equal is defined only for absorbing hashers. A zero-length Read still
-	// finalizes its receiver and must make it ineligible for comparison.
-	for _, tc := range []struct {
-		name     string
-		finalize int
-	}{
-		{name: "equal after left finalize", finalize: 0},
-		{name: "equal after right finalize", finalize: 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := [2]*Hasher{New(nil), New(nil)}
-			_, _ = h[tc.finalize].Read(nil)
-			mustPanic(t, "kt128: Equal requires absorbing Hashers", func() {
-				h[0].Equal(h[1])
-			})
-		})
-	}
-
 	// Chain values must be absorbed at a lane-aligned (multiple-of-8) position.
 	t.Run("absorbCV on non-lane-aligned state", func(t *testing.T) {
 		var s, src sponge

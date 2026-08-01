@@ -10,7 +10,7 @@ import (
 // These tests drive independent hashers, clones, and read-only operations from
 // many goroutines at once. Run under -race (the standard CI configs do), they
 // assert that the package holds no shared mutable state: clones evolve
-// independently, the SIMD leaf kernels are reentrant, and Clone/Equal/Pos never
+// independently, the SIMD leaf kernels are reentrant, and Clone/Pos never
 // mutate their receiver. The race detector instruments the Go-level buffering and
 // state machine; the assembly kernels take only caller-owned pointers (input,
 // cvs, sponge) and touch no package globals, so they are reentrant by
@@ -118,10 +118,10 @@ func TestConcurrentIndependentHashers(t *testing.T) {
 }
 
 // TestConcurrentSharedReadOnly hammers one shared, never-mutated hasher with
-// concurrent Clone, Equal, and Pos calls. All three are pure reads, so this must
-// be race-free, and the shared hasher must remain unfinalized and unchanged
-// afterward. A regression that made Clone or Equal mutate the receiver (e.g. a
-// lazy initialization) would both race here and corrupt the shared state.
+// concurrent Clone and Pos calls. Both are pure reads, so this must be race-free,
+// and the shared hasher must remain unfinalized and unchanged afterward. A
+// regression that made Clone mutate the receiver (e.g. a lazy initialization)
+// would both race here and corrupt the shared state.
 func TestConcurrentSharedReadOnly(t *testing.T) {
 	custom := []byte("ctx")
 	msg := ptn(3*ChunkSize + 7)
@@ -153,10 +153,6 @@ func TestConcurrentSharedReadOnly(t *testing.T) {
 					errs[w] = fmt.Errorf("clone output mismatch")
 					return
 				}
-				if h.Equal(h) != 1 {
-					errs[w] = fmt.Errorf("Equal(h, h) = 0, want 1")
-					return
-				}
 			}
 		}(w)
 	}
@@ -168,7 +164,7 @@ func TestConcurrentSharedReadOnly(t *testing.T) {
 		}
 	}
 
-	// h was only ever cloned/compared, never read, so it is still unfinalized and
+	// h was only ever cloned or queried, never read, so it is still unfinalized and
 	// must produce its original output.
 	final := make([]byte, 64)
 	_, _ = h.Read(final)

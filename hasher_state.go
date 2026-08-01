@@ -1,9 +1,6 @@
 package kt128
 
-import (
-	"crypto/subtle"
-	"slices"
-)
+import "slices"
 
 // Clone returns an independent copy of h at its current absorption or squeeze
 // position. Mutating either Hasher afterward does not affect the other.
@@ -53,28 +50,6 @@ func (h *Hasher) Clear() {
 		wipeBytes(h.c[:cap(h.c)])
 	}
 	*h = Hasher{}
-}
-
-// Equal returns 1 if the first 32 output bytes from h and other are equal, and
-// 0 otherwise. It does not modify either Hasher. Equal panics if either Hasher
-// has been finalized by a call to [Hasher.Read], including a zero-length read.
-// For fixed input lengths and lifecycle states, its work is independent of the
-// absorbed byte values. It does not conceal input or buffered lengths.
-func (h *Hasher) Equal(other *Hasher) int {
-	if h.state == stateFinalized || other.state == stateFinalized {
-		panic("kt128: Equal requires absorbing Hashers")
-	}
-
-	aClone, bClone := h.Clone(), other.Clone()
-	defer aClone.Clear()
-	defer bClone.Clear()
-
-	var a, b [32]byte
-	defer wipeBytes(a[:])
-	defer wipeBytes(b[:])
-	_, _ = aClone.Read(a[:])
-	_, _ = bClone.Read(b[:])
-	return subtle.ConstantTimeCompare(a[:], b[:])
 }
 
 // customSuffix appends C || length_encode(|C|) to dst and returns the result.

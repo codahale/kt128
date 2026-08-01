@@ -7,7 +7,7 @@ import (
 )
 
 // This file hardens the Hasher *lifecycle* — the state machine and the
-// Clone/Reset/Equal/Write/Read interactions — which FuzzHasher does not reach
+// Clone/Reset/Write/Read interactions — which FuzzHasher does not reach
 // because it only ever drives a single linear Write* -> Read sequence. Here an
 // interpreter applies an arbitrary interleaving of operations to a population of
 // hashers and checks each one against a model after every step. The model tracks
@@ -24,8 +24,7 @@ const (
 
 // lcModel is the reference state of one hasher. The expected output for a hasher
 // that has already squeezed `squeezed` bytes is bytes [squeezed, squeezed+n) of
-// referenceKT128(msg, custom). Equal is defined only while both operands are
-// absorbing, when it compares their first 32 output bytes.
+// referenceKT128(msg, custom).
 type lcModel struct {
 	custom    []byte
 	msg       []byte
@@ -39,20 +38,13 @@ func (m *lcModel) clone() *lcModel {
 	return &lcModel{custom: m.custom, msg: bytes.Clone(m.msg), finalized: m.finalized, squeezed: m.squeezed}
 }
 
-// equalBytes returns the 32 output bytes Equal would read from this hasher: the
-// slice starting at the current squeeze position.
-func (m *lcModel) equalBytes() [32]byte {
+// outputBytes returns the next 32 output bytes from this model at its current
+// squeeze position.
+func (m *lcModel) outputBytes() [32]byte {
 	full := referenceKT128(m.msg, m.custom, m.squeezed+32)
 	var out [32]byte
 	copy(out[:], full[m.squeezed:m.squeezed+32])
 	return out
-}
-
-func lcModelEqual(a, b *lcModel) int {
-	if a.equalBytes() == b.equalBytes() {
-		return 1
-	}
-	return 0
 }
 
 type lcSlot struct {
@@ -67,7 +59,6 @@ const (
 	lcWrite lcKind = iota
 	lcRead
 	lcClone
-	lcEqual
 	lcReset
 )
 
@@ -83,7 +74,6 @@ func opWrite(slot, length int, seed byte) lcOp {
 }
 func opRead(slot, length int) lcOp { return lcOp{kind: lcRead, slot: slot, length: length} }
 func opClone(slot, dst int) lcOp   { return lcOp{kind: lcClone, slot: slot, slot2: dst} }
-func opEqual(a, b int) lcOp        { return lcOp{kind: lcEqual, slot: a, slot2: b} }
 func opReset(slot int) lcOp        { return lcOp{kind: lcReset, slot: slot} }
 
 // lcSeedBytes returns n deterministic pseudorandom bytes (splitmix64) for fuzz
@@ -187,30 +177,10 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 
 		case lcClone:
 			ns := &lcSlot{h: s.h.Clone(), m: s.m.clone()}
-			// A fresh absorbing clone must compare equal to its source. Equal is
-			// unavailable after finalization, so finalized clones are checked by
-			// subsequent reads and the final sweep instead.
-			if !s.m.finalized && s.h.Equal(ns.h) != 1 {
-				t.Fatalf("step %d: clone of slot %d not equal to source", step, i)
-			}
 			if len(slots) < lcMaxSlots {
 				slots = append(slots, ns)
 			} else {
 				slots[op.slot2%len(slots)] = ns
-			}
-
-		case lcEqual:
-			j := op.slot2 % len(slots)
-			if slots[i].m.finalized || slots[j].m.finalized {
-				mustPanic(t, "kt128: Equal requires absorbing Hashers", func() {
-					slots[i].h.Equal(slots[j].h)
-				})
-				break
-			}
-			got := slots[i].h.Equal(slots[j].h)
-			want := lcModelEqual(slots[i].m, slots[j].m)
-			if got != want {
-				t.Fatalf("step %d: Equal(slot %d, slot %d) = %d, want %d", step, i, j, got, want)
 			}
 
 		case lcReset:
@@ -234,7 +204,7 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 	for k, sl := range slots {
 		var got [32]byte
 		_, _ = sl.h.Clone().Read(got[:])
-		if want := sl.m.equalBytes(); got != want {
+		if want := sl.m.outputBytes(); got != want {
 			t.Fatalf("final: slot %d state diverged from model\n got  %x\n want %x", k, got, want)
 		}
 	}
@@ -271,17 +241,15 @@ func decodeOps(program []byte) []lcOp {
 	var ops []lcOp
 	for pc < len(program) && len(ops) < maxOps {
 		// Weight the op distribution toward Write/Read, which drive the state
-		// machine, while keeping Clone/Equal/Reset frequent enough to interleave.
+		// machine, while keeping Clone/Reset frequent enough to interleave.
 		var op lcOp
-		switch o := next() % 8; {
+		switch o := next() % 7; {
 		case o <= 2:
 			op.kind = lcWrite
 		case o <= 4:
 			op.kind = lcRead
 		case o == 5:
 			op.kind = lcClone
-		case o == 6:
-			op.kind = lcEqual
 		default:
 			op.kind = lcReset
 		}
@@ -293,7 +261,7 @@ func decodeOps(program []byte) []lcOp {
 			op.length = lcDecodeLen(lb)
 		case lcRead:
 			op.length = int(next())
-		case lcClone, lcEqual:
+		case lcClone:
 			op.slot2 = int(next())
 		}
 		ops = append(ops, op)
@@ -302,12 +270,12 @@ func decodeOps(program []byte) []lcOp {
 }
 
 // FuzzHasherLifecycle drives an adversarial interleaving of Write, Read, Clone,
-// Reset, and Equal across two hashers (with distinct customization strings) and
-// their clones, checking every operation against the model. It exercises the
+// and Reset across two hashers (with distinct customization strings) and their
+// clones, checking every operation against the model. It exercises the
 // stateSingle->stateTree->stateFinalized transitions, Clone independence
 // (including cloning a mid-squeeze finalized hasher), Reset reuse (including
-// reset-after-finalize), the write-after-finalize panic, and Equal's
-// squeeze-position semantics — none of which FuzzHasher's linear path reaches.
+// reset-after-finalize), and the write-after-finalize panic — none of which
+// FuzzHasher's linear path reaches.
 func FuzzHasherLifecycle(f *testing.F) {
 	f.Add([]byte(""), []byte("domain"), []byte{})
 	f.Add([]byte("alpha"), []byte("beta"), []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11})
@@ -353,12 +321,9 @@ func TestHasherLifecycle(t *testing.T) {
 			ops: []lcOp{
 				opWrite(0, 100, 1),
 				opClone(0, 0), // -> slot 2
-				opEqual(0, 2), // identical clone: equal
 				opWrite(0, 50, 2),
-				opEqual(0, 2), // diverged: not equal
 				opRead(0, 32),
 				opRead(2, 32),
-				opEqual(0, 2), // finalized operands: must panic
 			},
 		},
 		{
@@ -370,19 +335,6 @@ func TestHasherLifecycle(t *testing.T) {
 				opClone(0, 0),                // clone mid-squeeze -> slot 2
 				opRead(0, 19),
 				opRead(2, 19), // clone resumes the same output stream
-				opEqual(0, 2), // finalized operands: must panic
-			},
-		},
-		{
-			name:    "equal across different customizations",
-			customs: [][]byte{[]byte("alpha"), []byte("beta")},
-			ops: []lcOp{
-				opWrite(0, 100, 1),
-				opWrite(1, 100, 1),
-				opEqual(0, 1), // same message, different customization: not equal
-				opReset(0),
-				opReset(1),
-				opEqual(0, 1), // empty message, different customization: not equal
 			},
 		},
 		{
