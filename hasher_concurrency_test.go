@@ -21,8 +21,8 @@ import (
 // TestConcurrentCloneIndependence clones one tree-mode hasher into many
 // goroutines, evolves each clone with distinct data, and confirms every clone
 // matches a sequentially computed reference and that the shared source is
-// unchanged. Clone reads the source (and its shared customization slice) from
-// every goroutine at once, so a race here means Clone is not a pure read.
+// unchanged. Clone reads and copies the source customization slice from every
+// goroutine at once, so a race here means Clone is not a pure read.
 func TestConcurrentCloneIndependence(t *testing.T) {
 	const workers = 8
 	custom := []byte("ctx")

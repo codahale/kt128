@@ -10,7 +10,7 @@ import (
 func (h *Hasher) Clone() *Hasher {
 	return &Hasher{
 		buf:        slices.Clone(h.buf),
-		c:          h.c,
+		c:          slices.Clone(h.c),
 		final:      h.final,
 		pending:    h.pending,
 		pos:        h.pos,
@@ -21,10 +21,10 @@ func (h *Hasher) Clone() *Hasher {
 	}
 }
 
-// Reset resets h to its initial state while preserving the customization string
-// passed to [New]. Like the standard library hash implementations, Reset does
-// not scrub buffered message data from memory; use [Hasher.Clear] when that is
-// required.
+// Reset resets h for reuse while preserving the customization string passed to
+// [New]. Like the standard library hash implementations, Reset does not scrub
+// buffered message data from memory. Call [Hasher.Clear] after the application
+// is finished with h when its state may contain sensitive data.
 func (h *Hasher) Reset() {
 	h.buf = h.buf[:0]
 	h.final.reset()
@@ -35,10 +35,10 @@ func (h *Hasher) Reset() {
 	h.state = stateSingle
 }
 
-// Clear makes a best effort to zero all message-derived state owned by h and
-// resets it for reuse while preserving the customization string passed to
-// [New]. Unlike [Hasher.Reset], Clear scrubs message-buffer allocations before
-// releasing them.
+// Clear makes a best effort to zero all state owned by h, including the
+// customization string. It is intended as final cleanup after the application
+// is finished with h, not as a substitute for [Hasher.Reset]. After calling
+// Clear, discard h and create a new Hasher for subsequent hashing.
 //
 // Clear cannot erase caller-owned input or output buffers, independent clones,
 // copies made by the Go compiler or runtime, or values left in registers. Each
@@ -46,11 +46,13 @@ func (h *Hasher) Reset() {
 //
 //go:noinline
 func (h *Hasher) Clear() {
-	c := h.c
 	if cap(h.buf) > 0 {
 		wipeBytes(h.buf[:cap(h.buf)])
 	}
-	*h = Hasher{c: c}
+	if cap(h.c) > 0 {
+		wipeBytes(h.c[:cap(h.c)])
+	}
+	*h = Hasher{}
 }
 
 // Equal returns 1 if the next 32 output bytes from h and other are equal, and 0

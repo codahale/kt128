@@ -35,8 +35,8 @@ type lcModel struct {
 }
 
 func (m *lcModel) clone() *lcModel {
-	// custom is never mutated after New, so sharing it matches Clone; msg is
-	// copied so the two models evolve independently.
+	// None of the modeled operations mutate custom, so the model may share it;
+	// msg is copied so the two models evolve independently.
 	return &lcModel{custom: m.custom, msg: bytes.Clone(m.msg), finalized: m.finalized, squeezed: m.squeezed}
 }
 

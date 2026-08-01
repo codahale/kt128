@@ -217,24 +217,23 @@ func TestClear(t *testing.T) {
 	if h.buf != nil {
 		t.Fatalf("buffer after Clear = %#v, want nil", h.buf)
 	}
+	if h.c != nil {
+		t.Fatalf("customization after Clear = %#v, want nil", h.c)
+	}
 	if h.pos != 0 || h.leafCount != 0 || h.pendingLen != 0 || h.state != stateSingle || h.ds != 0 {
 		t.Fatalf("Hasher metadata was not reset by Clear: %#v", h)
 	}
-	if !bytes.Equal(h.c, custom) {
-		t.Fatal("Clear did not preserve the customization string")
-	}
-
 	msg := ptn(ChunkSize + 1)
 	_, _ = h.Write(msg)
 	got := make([]byte, 64)
 	_, _ = h.Read(got)
 
-	fresh := New(custom)
+	fresh := New(nil)
 	_, _ = fresh.Write(msg)
 	want := make([]byte, 64)
 	_, _ = fresh.Read(want)
 	if !bytes.Equal(got, want) {
-		t.Fatal("Hasher reused after Clear differs from a fresh customized Hasher")
+		t.Fatal("Hasher reused after Clear differs from a fresh uncustomized Hasher")
 	}
 }
 

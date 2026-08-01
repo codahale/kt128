@@ -35,22 +35,51 @@ func TestBufferGrowthWipesOldAllocation(t *testing.T) {
 	}
 }
 
-func TestClearPreservesCustomizationAndWipesMessage(t *testing.T) {
-	custom := []byte("public domain separator")
+func TestClearWipesCustomizationAndMessage(t *testing.T) {
+	custom := []byte("secret customization string")
 	h := New(custom)
 	h.buf = bytes.Repeat([]byte{0xA5}, ChunkSize+31)
 	messageStorage := h.buf[:cap(h.buf)]
-	customStorage := h.c
+	customStorage := h.c[:cap(h.c)]
 
 	h.Clear()
 
 	if bytes.Count(messageStorage, []byte{0}) != len(messageStorage) {
 		t.Fatalf("message buffer was not zeroed")
 	}
-	if !bytes.Equal(h.c, custom) || !bytes.Equal(customStorage, custom) {
-		t.Fatalf("Clear changed customization: got %q, want %q", h.c, custom)
+	if bytes.Count(customStorage, []byte{0}) != len(customStorage) {
+		t.Fatalf("customization string was not zeroed: %x", customStorage)
 	}
-	if h.buf != nil || h.final != (sponge{}) || h.pending != (pendingState{}) || h.pendingLen != 0 || h.pos != 0 || h.leafCount != 0 || h.state != stateSingle || h.ds != 0 {
+	if h.buf != nil || h.c != nil || h.final != (sponge{}) || h.pending != (pendingState{}) || h.pendingLen != 0 || h.pos != 0 || h.leafCount != 0 || h.state != stateSingle || h.ds != 0 {
 		t.Fatalf("Clear did not reset Hasher state: %#v", h)
+	}
+}
+
+func TestClearCloneDoesNotWipeSourceCustomization(t *testing.T) {
+	custom := []byte("secret customization string")
+	h := New(custom)
+	clone := h.Clone()
+	cloneStorage := clone.c[:cap(clone.c)]
+
+	clone.Clear()
+
+	if bytes.Count(cloneStorage, []byte{0}) != len(cloneStorage) {
+		t.Fatalf("clone customization string was not zeroed: %x", cloneStorage)
+	}
+	if !bytes.Equal(h.c, custom) {
+		t.Fatalf("clearing clone changed source customization: got %q, want %q", h.c, custom)
+	}
+
+	msg := []byte("message")
+	_, _ = h.Write(msg)
+	got := make([]byte, 32)
+	_, _ = h.Read(got)
+
+	wantHasher := New(custom)
+	_, _ = wantHasher.Write(msg)
+	want := make([]byte, 32)
+	_, _ = wantHasher.Read(want)
+	if !bytes.Equal(got, want) {
+		t.Fatal("clearing clone changed source output")
 	}
 }
