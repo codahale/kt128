@@ -59,3 +59,20 @@ func TestReadAllocationsDoNotScale(t *testing.T) {
 		t.Errorf("output allocations scale with length: %.0f for 32 B but %.0f for 4096 B", a32, a4k)
 	}
 }
+
+// TestCustomizationFinalizationDoesNotAllocate guards that finalization absorbs
+// the customization string and its length encoding separately instead of
+// materializing their concatenation.
+func TestCustomizationFinalizationDoesNotAllocate(t *testing.T) {
+	var out [32]byte
+	for _, size := range []int{56, 128, ChunkSize + 7} {
+		custom := ptn(size)
+		allocs := testing.AllocsPerRun(20, func() {
+			h := Hasher{c: custom}
+			_, _ = h.Read(out[:])
+		})
+		if allocs != 0 {
+			t.Errorf("customization=%d: finalization allocated %.0f times, want 0", size, allocs)
+		}
+	}
+}

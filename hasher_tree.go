@@ -39,7 +39,7 @@ func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 // Returns the unconsumed rest of p; if the leaf remains incomplete, p is
 // buffered as more of its remnant and the result is empty.
 
-func (h *Hasher) fuseTrailingLeaves(trailing []byte, n int, head, suffix []byte) {
+func (h *Hasher) fuseTrailingLeaves(trailing []byte, n int, head, custom, encoded []byte) {
 	nShared := len(head) / rate
 	var cvs [256]byte
 	var s sponge
@@ -48,35 +48,63 @@ func (h *Hasher) fuseTrailingLeaves(trailing []byte, n int, head, suffix []byte)
 	processLeavesTailArch(trailing, n, nShared, &cvs, &s)
 	h.final.absorbCVs(cvs[:n*32])
 	s.absorb(head[nShared*rate:])
-	s.absorb(suffix)
+	s.absorb(custom)
+	s.absorb(encoded)
 	s.padPermute(leafDS)
 	h.final.absorbCV(&s)
 	h.leafCount += uint64(n) + 1
 }
 
-// absorbTailLeaves processes the final leaves of the logical stream head || tail,
-// where head is the trailing < ChunkSize message bytes and tail is the remaining
-// customization suffix. The single leaf that straddles the head/tail boundary is
-// absorbed incrementally so neither slice is copied.
-func (h *Hasher) absorbTailLeaves(head, tail []byte) {
+// absorbTailLeaves processes the final leaves of the logical stream
+// head || custom || encoded. The single leaf that straddles a segment boundary
+// is absorbed incrementally so no segment is copied.
+func (h *Hasher) absorbTailLeaves(head, custom, encoded []byte) {
 	if len(head) == 0 {
-		// Remaining data is contiguous in tail.
-		h.absorbContiguousLeaves(tail)
+		h.absorbContiguousLeafParts(custom, encoded)
 		return
 	}
 
-	// The straddling leaf takes as much of tail as fits: all of it when
-	// head || tail forms a single final partial leaf, leaving nothing for the
-	// contiguous pass below.
-	n := min(ChunkSize-len(head), len(tail))
 	var s sponge
 	defer s.wipe()
 	s.absorb(head)
-	s.absorb(tail[:n])
+	room := ChunkSize - len(head)
+	n := min(room, len(custom))
+	s.absorb(custom[:n])
+	custom = custom[n:]
+	room -= n
+	n = min(room, len(encoded))
+	s.absorb(encoded[:n])
+	encoded = encoded[n:]
 	s.padPermute(leafDS)
 	h.final.absorbCV(&s)
 	h.leafCount++
-	h.absorbContiguousLeaves(tail[n:])
+	h.absorbContiguousLeafParts(custom, encoded)
+}
+
+// absorbContiguousLeafParts processes custom || encoded as zero or more full
+// leaves followed by an optional final partial leaf. Full leaves wholly within
+// custom use the SIMD batch path; only the leaf crossing the segment boundary is
+// absorbed incrementally.
+func (h *Hasher) absorbContiguousLeafParts(custom, encoded []byte) {
+	nFull := len(custom) / ChunkSize
+	if nFull > 0 {
+		h.processLeafBatch(custom[:nFull*ChunkSize], nFull)
+		custom = custom[nFull*ChunkSize:]
+	}
+	if len(custom) == 0 {
+		h.absorbContiguousLeaves(encoded)
+		return
+	}
+
+	var s sponge
+	defer s.wipe()
+	s.absorb(custom)
+	n := min(ChunkSize-len(custom), len(encoded))
+	s.absorb(encoded[:n])
+	s.padPermute(leafDS)
+	h.final.absorbCV(&s)
+	h.leafCount++
+	h.absorbContiguousLeaves(encoded[n:])
 }
 
 // absorbContiguousLeaves processes data as zero or more full leaves followed by

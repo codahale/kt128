@@ -103,8 +103,8 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		}
 
 		// Flush the architecture-selected complete-chunk prefix in place.
-		// Complete message leaves need no lookahead, since the customization
-		// suffix added at finalization is always non-empty.
+		// Complete message leaves need no lookahead, since finalization always
+		// adds at least the customization length encoding.
 		processable := len(p) / ChunkSize
 		nFlush := directFlushChunks(processable)
 		if nFlush > 0 {
@@ -284,7 +284,7 @@ func (h *Hasher) extendPending(p []byte) []byte {
 
 // absorbMessage absorbs the rest of the logical message into h.final, setting
 // h.ds. Message bytes up to one chunk are already in h.final, so in single-node
-// mode only the suffix remains, and it decides whether the input fits a single
-// node. In tree mode, the buffered leaf tail and the suffix are processed as a
-// single byte stream without concatenating or copying them. It does not modify
-// h.buf.
+// mode only the customization string and its length encoding remain, and they
+// decide whether the input fits a single node. In tree mode, the buffered leaf
+// tail and those segments are processed as a single byte stream without
+// concatenating or copying them. It does not modify h.buf.

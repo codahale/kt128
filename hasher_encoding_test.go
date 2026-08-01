@@ -37,8 +37,8 @@ func TestLengthEncode(t *testing.T) {
 				t.Errorf("lengthEncode(nil, %d) = %x, want %x", tc.value, got, tc.want)
 			}
 
-			// Callers always append onto a live buffer (the customization suffix
-			// and the leafCount terminator), so a non-empty prefix must survive.
+			// lengthEncode appends to its destination, so a non-empty prefix must
+			// survive.
 			prefix := []byte{0xAA, 0xBB}
 			want := append([]byte{0xAA, 0xBB}, tc.want...)
 			if got := lengthEncode(prefix, tc.value); !bytes.Equal(got, want) {

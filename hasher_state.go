@@ -51,5 +51,3 @@ func (h *Hasher) Clear() {
 	}
 	*h = Hasher{}
 }
-
-// customSuffix appends C || length_encode(|C|) to dst and returns the result.
