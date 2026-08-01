@@ -12,7 +12,6 @@ func (h *Hasher) Clone() *Hasher {
 		pos:       h.pos,
 		leafCount: h.leafCount,
 		leafLen:   h.leafLen,
-		ds:        h.ds,
 		state:     h.state,
 	}
 }
@@ -23,7 +22,6 @@ func (h *Hasher) Reset() {
 	h.final.wipe()
 	h.leaf.wipe()
 	h.pos = 0
-	h.ds = 0
 	h.leafCount = 0
 	h.leafLen = 0
 	h.state = stateSingle

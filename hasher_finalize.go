@@ -19,7 +19,11 @@ func (h *Hasher) Read(p []byte) (int, error) {
 func (h *Hasher) finalize() {
 	var encoded [9]byte
 	h.absorbCustomization(h.c, lengthEncode(encoded[:0], uint64(len(h.c))))
-	h.final.padPermute(h.ds)
+	var ds uint8 = singleDS
+	if h.state != stateSingle {
+		ds = treeDS
+	}
+	h.final.padPermute(ds)
 }
 
 // absorbCustomization absorbs the customization string and its length encoding
@@ -30,7 +34,6 @@ func (h *Hasher) absorbCustomization(custom, encoded []byte) {
 		room := ChunkSize - int(h.pos)
 		if len(custom) <= room && len(encoded) <= room-len(custom) {
 			// Single-node: KT128 single-node finalization.
-			h.ds = singleDS
 			h.final.absorb(custom)
 			h.final.absorb(encoded)
 			return

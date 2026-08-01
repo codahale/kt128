@@ -67,7 +67,6 @@ type Hasher struct {
 	leafCount uint64 // total leaf CVs written to final so far
 	leafLen   int    // bytes absorbed into leaf; 0 = no partial leaf
 	state     uint8  // lifecycle: stateSingle -> stateTree -> stateFinalized
-	ds        byte   // KT128 customization byte for finalization (singleDS or treeDS)
 }
 
 // New returns a new Hasher using c as the KT128 customization string. It retains

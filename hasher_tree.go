@@ -4,7 +4,6 @@ package kt128
 // ChunkSize bytes of S_0.
 func (h *Hasher) startTreeMode() {
 	h.final.absorb(kt12Marker[:])
-	h.ds = treeDS
 	h.state = stateTree
 }
 
@@ -25,7 +24,6 @@ func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 	} else if !processS0LeavesArch(p[:n*ChunkSize], n, &h.final, &cvs) {
 		return false
 	}
-	h.ds = treeDS
 	h.state = stateTree
 	h.final.absorbCVs(cvs[32 : n*32])
 	h.leafCount += uint64(n - 1)
