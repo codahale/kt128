@@ -55,11 +55,16 @@ func (h *Hasher) Clear() {
 	*h = Hasher{}
 }
 
-// Equal returns 1 if the next 32 output bytes from h and other are equal, and 0
-// otherwise. It does not modify either Hasher. For fixed input lengths and
-// lifecycle states, its work is independent of the absorbed byte values. It
-// does not conceal input lengths, buffered lengths, or lifecycle states.
+// Equal returns 1 if the first 32 output bytes from h and other are equal, and
+// 0 otherwise. It does not modify either Hasher. Equal panics if either Hasher
+// has been finalized by a call to [Hasher.Read], including a zero-length read.
+// For fixed input lengths and lifecycle states, its work is independent of the
+// absorbed byte values. It does not conceal input or buffered lengths.
 func (h *Hasher) Equal(other *Hasher) int {
+	if h.state == stateFinalized || other.state == stateFinalized {
+		panic("kt128: Equal requires absorbing Hashers")
+	}
+
 	aClone, bClone := h.Clone(), other.Clone()
 	defer aClone.Clear()
 	defer bClone.Clear()

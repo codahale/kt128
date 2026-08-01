@@ -24,9 +24,8 @@ const (
 
 // lcModel is the reference state of one hasher. The expected output for a hasher
 // that has already squeezed `squeezed` bytes is bytes [squeezed, squeezed+n) of
-// referenceKT128(msg, custom). Equal compares the next 32 such bytes of each
-// operand (it clones and reads 32 bytes), so finalized hashers that have squeezed
-// different amounts produce different Equal operands even over the same message.
+// referenceKT128(msg, custom). Equal is defined only while both operands are
+// absorbing, when it compares their first 32 output bytes.
 type lcModel struct {
 	custom    []byte
 	msg       []byte
@@ -188,8 +187,10 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 
 		case lcClone:
 			ns := &lcSlot{h: s.h.Clone(), m: s.m.clone()}
-			// A fresh clone must compare equal to its source.
-			if s.h.Equal(ns.h) != 1 {
+			// A fresh absorbing clone must compare equal to its source. Equal is
+			// unavailable after finalization, so finalized clones are checked by
+			// subsequent reads and the final sweep instead.
+			if !s.m.finalized && s.h.Equal(ns.h) != 1 {
 				t.Fatalf("step %d: clone of slot %d not equal to source", step, i)
 			}
 			if len(slots) < lcMaxSlots {
@@ -200,6 +201,12 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 
 		case lcEqual:
 			j := op.slot2 % len(slots)
+			if slots[i].m.finalized || slots[j].m.finalized {
+				mustPanic(t, "kt128: Equal requires absorbing Hashers", func() {
+					slots[i].h.Equal(slots[j].h)
+				})
+				break
+			}
 			got := slots[i].h.Equal(slots[j].h)
 			want := lcModelEqual(slots[i].m, slots[j].m)
 			if got != want {
@@ -351,7 +358,7 @@ func TestHasherLifecycle(t *testing.T) {
 				opEqual(0, 2), // diverged: not equal
 				opRead(0, 32),
 				opRead(2, 32),
-				opEqual(0, 2),
+				opEqual(0, 2), // finalized operands: must panic
 			},
 		},
 		{
@@ -363,7 +370,7 @@ func TestHasherLifecycle(t *testing.T) {
 				opClone(0, 0),                // clone mid-squeeze -> slot 2
 				opRead(0, 19),
 				opRead(2, 19), // clone resumes the same output stream
-				opEqual(0, 2), // both at squeeze position 32: equal
+				opEqual(0, 2), // finalized operands: must panic
 			},
 		},
 		{

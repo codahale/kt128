@@ -99,9 +99,10 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
   best effort to zero all hasher-owned state, including the customization string; discard the hasher afterward and
   create a new one for subsequent hashing. Caller-owned buffers, independent clones, runtime copies, and registers are
   outside its scope.
-- `Equal` reports whether the next 32 output bytes from two hashers are equal at their current squeeze positions,
-  returning 1 if equal and 0 otherwise. For fixed input lengths and lifecycle states, its work is independent of the
-  absorbed byte values; it does not conceal input lengths, buffered lengths, or lifecycle states.
+- `Equal` reports whether the first 32 output bytes from two absorbing hashers are equal, returning 1 if equal and 0
+  otherwise. It panics if either hasher has been finalized by any call to `Read`, including a zero-length read. For
+  fixed input lengths and lifecycle states, its work is independent of the absorbed byte values; it does not conceal
+  input or buffered lengths.
 - `Pos` returns the number of bytes written so far. It is exact below 2^64 bytes and wraps modulo 2^64 for longer
   streams without an intervening `Reset` or `Clear`.
 - `Hasher.BlockSize()` reports the 168-byte TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.
