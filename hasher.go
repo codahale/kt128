@@ -12,6 +12,17 @@
 // required CPU features are available; other targets and the purego build use
 // a scalar fallback.
 //
+// # Security
+//
+// KT128 targets 128-bit security. Outputs should be at least 16 bytes for
+// 128-bit single-target preimage and second-preimage resistance, and at least
+// 32 bytes for 128-bit collision resistance. Multi-target preimage resistance
+// may require additional output bits; see RFC 9861 Section 7.
+//
+// KT128 is designed to be fast and is not a password-hashing function. Use a
+// purpose-built password-hashing function for passwords and other low-entropy
+// secrets.
+//
 // [RFC 9861]: https://www.rfc-editor.org/rfc/rfc9861.html
 package kt128
 
@@ -72,7 +83,8 @@ func (h *Hasher) BlockSize() int {
 }
 
 // Pos returns the total number of message bytes accepted by [Hasher.Write]
-// since construction or the last call to [Hasher.Reset] or [Hasher.Clear].
+// since construction or the last call to [Hasher.Reset] or [Hasher.Clear]. It
+// is exact below 2^64 bytes and wraps modulo 2^64 for longer streams.
 func (h *Hasher) Pos() uint64 {
 	return h.pos
 }

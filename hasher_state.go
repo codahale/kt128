@@ -56,8 +56,9 @@ func (h *Hasher) Clear() {
 }
 
 // Equal returns 1 if the next 32 output bytes from h and other are equal, and 0
-// otherwise. It does not modify either Hasher. The comparison is constant-time
-// with respect to the contents of the inputs absorbed by the two hashers.
+// otherwise. It does not modify either Hasher. For fixed input lengths and
+// lifecycle states, its work is independent of the absorbed byte values. It
+// does not conceal input lengths, buffered lengths, or lifecycle states.
 func (h *Hasher) Equal(other *Hasher) int {
 	aClone, bClone := h.Clone(), other.Clone()
 	defer aClone.Clear()

@@ -49,6 +49,15 @@ func main() {
 `Read` finalizes the hasher on first use and then continues squeezing output on subsequent calls. Because KT128 is an
 XOF, you choose the output length by the size of the destination buffer.
 
+## Security
+
+KT128 targets 128-bit security. Use at least 16 output bytes for 128-bit single-target preimage and second-preimage
+resistance, and at least 32 output bytes for 128-bit collision resistance. Multi-target preimage resistance requires
+additional output bits as described in RFC 9861 Section 7.
+
+KT128 is designed to be fast and is not a password-hashing function. Use a purpose-built password-hashing function for
+passwords and other low-entropy secrets.
+
 ## Customization
 
 Pass a customization string to `New`:
@@ -91,8 +100,10 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
   create a new one for subsequent hashing. Caller-owned buffers, independent clones, runtime copies, and registers are
   outside its scope.
 - `Equal` reports whether the next 32 output bytes from two hashers are equal at their current squeeze positions,
-  returning 1 if equal and 0 otherwise. The comparison is constant-time with respect to the absorbed byte values.
-- `Pos` returns the number of bytes written so far.
+  returning 1 if equal and 0 otherwise. For fixed input lengths and lifecycle states, its work is independent of the
+  absorbed byte values; it does not conceal input lengths, buffered lengths, or lifecycle states.
+- `Pos` returns the number of bytes written so far. It is exact below 2^64 bytes and wraps modulo 2^64 for longer
+  streams without an intervening `Reset` or `Clear`.
 - `Hasher.BlockSize()` reports the 168-byte TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.
 
 ## License
