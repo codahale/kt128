@@ -88,8 +88,8 @@ func BenchmarkPairVsRun(b *testing.B) {
 
 // TestWriteForceAVX2DirectFlush pins the AVX2 direct-flush shapes: with a
 // four-chunk flush unit, a quad-sized tail left after S_0 fusion flushes
-// straight from the caller's buffer instead of being copied into the leaf
-// buffer. Output correctness for these shapes is covered by
+// straight from the caller's buffer. Output correctness for these shapes is
+// covered by
 // TestAVX2MatchesAVX512; this test asserts the scheduling itself.
 
 func TestAVX2MatchesAVX512(t *testing.T) {

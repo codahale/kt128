@@ -12,20 +12,13 @@ import (
 
 func TestWriteForceGenericFallback(t *testing.T) {
 	savedSHA3 := cpuid.HasSHA3
-	savedStreamChunks, savedHasLeafBatch5 := streamChunks, hasLeafBatch5
+	savedHasLeafBatch5 := hasLeafBatch5
 	defer func() {
 		cpuid.HasSHA3 = savedSHA3
-		streamChunks, hasLeafBatch5 = savedStreamChunks, savedHasLeafBatch5
+		hasLeafBatch5 = savedHasLeafBatch5
 	}()
 	cpuid.HasSHA3 = false
-	streamChunks, hasLeafBatch5 = 1, false
-
-	if got := flushChunks(); got != 1 {
-		t.Fatalf("flushChunks() = %d, want 1", got)
-	}
-	if got := directFlushChunks(7); got != 7 {
-		t.Fatalf("directFlushChunks(7) = %d, want 7", got)
-	}
+	hasLeafBatch5 = false
 
 	for _, size := range []int{
 		0, ChunkSize, 2 * ChunkSize, 9*ChunkSize + 137, 1024 * 1024,
@@ -43,27 +36,6 @@ func TestWriteForceGenericFallback(t *testing.T) {
 				t.Fatalf("generic fallback output %x != reference %x", got, want)
 			}
 		})
-	}
-}
-
-func TestARM64DirectFlushChunks(t *testing.T) {
-	if !cpuid.HasSHA3 {
-		t.Skip("no SHA3 extension")
-	}
-	for n, want := range map[int]int{
-		2:  2,
-		3:  3,
-		4:  4,
-		5:  5,
-		7:  7,
-		9:  9,
-		11: 10,
-		13: 13,
-		15: 15,
-	} {
-		if got := directFlushChunks(n); got != want {
-			t.Errorf("directFlushChunks(%d) = %d, want %d", n, got, want)
-		}
 	}
 }
 
@@ -97,8 +69,8 @@ func TestARM64DirectWriteUsesBatch5(t *testing.T) {
 	if h.leafCount != 6 {
 		t.Fatalf("leaf count = %d, want 6", h.leafCount)
 	}
-	if cap(h.buf) != 0 {
-		t.Fatalf("buffer capacity = %d, want 0", cap(h.buf))
+	if h.leafLen != 0 {
+		t.Fatalf("partial leaf bytes = %d, want 0", h.leafLen)
 	}
 
 	got := make([]byte, 32)

@@ -11,7 +11,7 @@ arbitrary-length output, customization strings, and optimized tree hashing for l
 - Switches to tree mode once the input exceeds one 8192-byte chunk.
 - Uses optimized assembly on `amd64` and `arm64`.
 - Falls back to pure Go on other targets, or with `-tags purego`.
-- Exposes `Clone`, `Reset`, `Clear`, and `Pos` helpers.
+- Exposes `Clone`, `Reset`, `ClearWriter`, and `Pos` helpers.
 
 ## Requirements
 
@@ -70,6 +70,12 @@ out := make([]byte, 64)
 _, _ = h.Read(out)
 ```
 
+`New` retains the customization slice by reference and does not copy it. The caller must keep the slice contents
+unchanged while the hasher or any clone derived from it may be used. This includes periods between `Reset` and the next
+hash: `Reset` preserves the same reference. Concurrent modification is a data race with finalization. If the
+customization is sensitive, the caller is responsible for clearing its storage after all referring hashers have been
+retired.
+
 ## Performance Notes
 
 Once the input (the message plus the customization string and its length encoding) exceeds one 8 KiB KT128 chunk, the
@@ -89,19 +95,54 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
 
 ## API Notes
 
-- `New(c)` creates a new hasher with customization string `c` (pass nil for none); it copies `c`.
-- `Write` absorbs message bytes.
+- `New(c)` creates a new hasher with customization string `c` (pass nil for none) and retains `c` by reference.
+- `Write` absorbs message bytes without retaining the input slice.
 - `Read(dst)` squeezes output into `dst`.
-- `Clone` copies the current state so both hashers can evolve independently.
-- `Reset` resets the hasher for reuse while preserving its customization string, without scrubbing buffered message
-  data.
-- `Clear` is final cleanup for when the application is finished with a hasher, not a substitute for `Reset`. It makes a
-  best effort to zero all hasher-owned state, including the customization string; discard the hasher afterward and
-  create a new one for subsequent hashing. Caller-owned buffers, independent clones, runtime copies, and registers are
-  outside its scope.
+- `Clone` copies the current hashing state but shares the caller-owned customization slice.
+- `Reset` makes a best effort to zero message-dependent state and resets the hasher for reuse while preserving its
+  customization reference.
+- `ClearWriter` discards pending data from a `bufio.Writer`, detaches its destination, and makes a best effort to zero
+  its backing buffer.
 - `Pos` returns the number of bytes written so far. It is exact below 2^64 bytes and wraps modulo 2^64 for longer
-  streams without an intervening `Reset` or `Clear`.
+  streams without an intervening `Reset`.
 - `Hasher.BlockSize()` reports the 168-byte TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.
+
+## Ownership and Buffering
+
+The caller owns every input and output slice. `Write` absorbs its argument before returning and does not retain it, so
+the caller may immediately modify or reuse a message slice. `Read` writes directly into its argument and does not retain
+it. A `Hasher` retains only fixed-size hashing state and the customization reference described above; it does not retain
+message bytes or allocate a message-sized internal buffer.
+
+Complete leaves contiguous within a `Write` use the parallel kernels, while leaves assembled from smaller writes are
+absorbed incrementally. Applications issuing small writes can recover bulk throughput with an explicitly sized buffer;
+the default 4 KiB `bufio.Writer` is too small for this purpose:
+
+```go
+h := kt128.New(custom)
+w := bufio.NewWriterSize(h, 8*kt128.ChunkSize)
+```
+
+External buffering remains entirely caller managed. A `bufio.Writer` may retain message bytes in its backing array;
+large writes may instead pass directly through to the Hasher. Bytes reported by `w.Buffered()` have not reached the
+Hasher. Call `w.Flush()` before `Read`, `Clone`, or `Pos` when those operations must account for every submitted byte.
+Before `Reset`, either flush pending bytes if they belong to the current message or discard them with `ClearWriter`.
+The caller owns the writer, its destination, and the sequencing and error handling for `Write` and `Flush`.
+
+`ClearWriter` deliberately discards rather than flushes pending bytes, detaches the destination by resetting the writer
+to `io.Discard`, and makes a best effort to wipe the writer's backing array. It does not clear bytes already flushed to
+the former destination. After producing the final output, clear caller-owned storage only after every object retaining
+it has been retired:
+
+```go
+kt128.ClearWriter(w)
+h.Reset()
+// Retire h and every clone here.
+clear(custom)
+```
+
+As with any best-effort clearing operation in Go, `Reset` and `ClearWriter` cannot erase copies made by the compiler or
+runtime, data already written elsewhere, or values left in registers.
 
 ## License
 

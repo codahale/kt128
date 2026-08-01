@@ -2,7 +2,6 @@ package kt128
 
 import (
 	"bytes"
-	"runtime"
 	"testing"
 )
 
@@ -31,7 +30,7 @@ func TestWriteFusedS0Leaf(t *testing.T) {
 	}
 }
 
-func TestWriteTreeModeBuffering(t *testing.T) {
+func TestWriteTreeModeIncrementalLeaf(t *testing.T) {
 	t.Run("direct S0", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(ChunkSize + 1))
@@ -39,130 +38,48 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		if h.state != stateTree {
 			t.Fatalf("state = %d, want stateTree", h.state)
 		}
-		if len(h.buf) != 1 {
-			t.Fatalf("buffered bytes = %d, want 1", len(h.buf))
-		}
-		if cap(h.buf) >= ChunkSize {
-			t.Fatalf("buffer capacity = %d, want less than one block", cap(h.buf))
+		if h.leafLen != 1 {
+			t.Fatalf("partial leaf bytes = %d, want 1", h.leafLen)
 		}
 	})
 
-	t.Run("no buffering below one chunk", func(t *testing.T) {
+	t.Run("no leaf below one chunk", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(ChunkSize))
 
 		if h.state != stateSingle {
 			t.Fatalf("state = %d, want stateSingle", h.state)
 		}
-		if cap(h.buf) != 0 {
-			t.Fatalf("buffer capacity = %d, want 0", cap(h.buf))
-		}
-
-		_, _ = h.Write([]byte{0xA5})
-
-		if h.state != stateTree {
-			t.Fatalf("state = %d, want stateTree", h.state)
-		}
-		if len(h.buf) != 1 {
-			t.Fatalf("buffered bytes = %d, want 1", len(h.buf))
-		}
-		if cap(h.buf) >= ChunkSize {
-			t.Fatalf("buffer capacity = %d, want less than one block", cap(h.buf))
+		if h.leafLen != 0 || h.leaf != (sponge{}) {
+			t.Fatalf("unexpected partial leaf state: len=%d state=%#v", h.leafLen, h.leaf)
 		}
 	})
 
-	t.Run("streaming buffer settles after one growth", func(t *testing.T) {
-		chunk := ptn(ChunkSize)
-
-		// A fresh hasher's first flush cycle grows the buffer a bounded
-		// number of times — the initial exact-size fill, append-sized steps
-		// up to growJumpMin, and one jump to the streaming high-water mark —
-		// and later cycles reuse it without reallocating.
-		wantMax := 3.0 // hasher + first fill + one growth
-		if growJumpMin > 0 {
-			wantMax = 5.0 // plus append's growth steps below the jump threshold
-		}
-		allocs := testing.AllocsPerRun(3, func() {
-			h := New(nil)
-			for range 2*streamChunks + 2 {
-				_, _ = h.Write(chunk)
-			}
-		})
-		if allocs > wantMax {
-			t.Fatalf("streaming write cycle allocated %.0f times, want at most %.0f", allocs, wantMax)
-		}
-
-		h := New(nil)
-		for range 2*streamChunks + 2 {
-			_, _ = h.Write(chunk)
-		}
-		if maxCap := (streamChunks + 1) * ChunkSize; cap(h.buf) > maxCap {
-			t.Fatalf("buffer capacity = %d, want at most %d", cap(h.buf), maxCap)
-		}
-	})
-
-	t.Run("flush exact lane batch", func(t *testing.T) {
+	t.Run("fragment completes leaf", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(ChunkSize + 1))
-		_, _ = h.Write(ptn(streamChunks*ChunkSize - 1))
+		_, _ = h.Write(ptn(ChunkSize - 1))
 
-		if h.leafCount != uint64(streamChunks) {
-			t.Fatalf("leaf count = %d, want %d", h.leafCount, streamChunks)
+		if h.leafCount != 1 {
+			t.Fatalf("leaf count = %d, want 1", h.leafCount)
 		}
-		if len(h.buf) != 0 {
-			t.Fatalf("buffered bytes = %d, want 0", len(h.buf))
+		if h.leafLen != 0 || h.leaf != (sponge{}) {
+			t.Fatalf("completed leaf was not reset: len=%d state=%#v", h.leafLen, h.leaf)
 		}
 	})
 
-	t.Run("buffered chunks complete lane batch", func(t *testing.T) {
-		if streamChunks == 1 {
-			t.Skip("scalar path has no multi-chunk batch")
-		}
-
-		msg := ptn((streamChunks + 3) * ChunkSize)
-		h := New(nil)
-		_, _ = h.Write(msg[:2*ChunkSize])
-		_, _ = h.Write(msg[2*ChunkSize : 3*ChunkSize])
-		if len(h.buf) != ChunkSize {
-			t.Fatalf("buffered bytes before top-up = %d, want %d", len(h.buf), ChunkSize)
-		}
-
-		_, _ = h.Write(msg[3*ChunkSize:])
-		if h.leafCount != uint64(streamChunks+1) {
-			t.Fatalf("leaf count = %d, want %d", h.leafCount, streamChunks+1)
-		}
-		if len(h.buf) != ChunkSize {
-			t.Fatalf("buffered bytes after top-up = %d, want %d", len(h.buf), ChunkSize)
-		}
-
-		got := make([]byte, 32)
-		_, _ = h.Read(got)
-		if want := referenceKT128(msg, nil, len(got)); !bytes.Equal(got, want) {
-			t.Fatalf("output = %x, want %x", got, want)
-		}
-	})
-
-	t.Run("direct pairs below lane batch", func(t *testing.T) {
-		if flushChunks() >= availableLanes {
-			t.Skip("no sub-batch direct flushing on this platform")
-		}
-		if runtime.GOARCH == "amd64" {
-			// amd64 S_0 fusion consumes four chunks, changing the shape
-			// arithmetic below; TestWriteForceAVX2DirectFlush covers the
-			// AVX2 sub-batch direct flush instead.
-			t.Skip("amd64 shapes are covered by TestWriteForceAVX2DirectFlush")
-		}
-		h := New(nil)
-		_, _ = h.Write(ptn(6*ChunkSize + 37)) // S_0+leaf fused, 4 leaves in place, tail buffered
-
-		if h.leafCount != 5 {
-			t.Fatalf("leaf count = %d, want 5", h.leafCount)
-		}
-		if len(h.buf) != 37 {
-			t.Fatalf("buffered bytes = %d, want 37", len(h.buf))
-		}
-		if cap(h.buf) >= ChunkSize {
-			t.Fatalf("buffer capacity = %d, want less than one block", cap(h.buf))
+	t.Run("fragmented writes do not allocate", func(t *testing.T) {
+		msg := ptn(2*availableLanes*ChunkSize + 123)
+		var out [32]byte
+		allocs := testing.AllocsPerRun(20, func() {
+			h := New(nil)
+			for off := 0; off < len(msg); off += 1024 {
+				_, _ = h.Write(msg[off:min(off+1024, len(msg))])
+			}
+			_, _ = h.Read(out[:])
+		})
+		if allocs != 0 {
+			t.Fatalf("fragmented hash allocated %.0f times, want 0", allocs)
 		}
 	})
 
@@ -173,27 +90,20 @@ func TestWriteTreeModeBuffering(t *testing.T) {
 		if h.leafCount != uint64(availableLanes) {
 			t.Fatalf("leaf count = %d, want %d", h.leafCount, availableLanes)
 		}
-		if cap(h.buf) != 0 {
-			t.Fatalf("buffer capacity = %d, want 0", cap(h.buf))
+		if h.leafLen != 0 {
+			t.Fatalf("partial leaf bytes = %d, want 0", h.leafLen)
 		}
 	})
 
-	t.Run("chunk-aligned remainder drains in place", func(t *testing.T) {
-		// A bulk write ending on a chunk boundary drains its sub-unit chunk
-		// remainder in place: the buffer stays unallocated and every complete
-		// leaf is counted. 30 chunks leaves a six-chunk aligned remainder on
-		// AVX-512 (S_0 fusion takes 8) and a two-chunk one on AVX2 (fusion
-		// takes 4); arm64's fusion takes 2 and its 2-chunk flush unit covers
-		// the rest exactly, and purego's single-chunk unit leaves no
-		// remainder — both pin the same invariant trivially.
+	t.Run("ragged bulk write retains only leaf state", func(t *testing.T) {
 		h := New(nil)
-		_, _ = h.Write(ptn(30 * ChunkSize))
+		_, _ = h.Write(ptn(6*ChunkSize + 37))
 
-		if h.leafCount != 29 {
-			t.Fatalf("leaf count = %d, want 29", h.leafCount)
+		if h.leafCount != 5 {
+			t.Fatalf("leaf count = %d, want 5", h.leafCount)
 		}
-		if cap(h.buf) != 0 {
-			t.Fatalf("buffer capacity = %d, want 0", cap(h.buf))
+		if h.leafLen != 37 {
+			t.Fatalf("partial leaf bytes = %d, want 37", h.leafLen)
 		}
 	})
 }

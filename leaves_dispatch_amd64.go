@@ -25,51 +25,6 @@ import (
 
 const availableLanes = 8
 
-// flushChunks is the smallest chunk count the direct fast path may flush
-// without meaningful throughput loss. On AVX-512 it is the full SIMD width:
-// the remainder paths are masked passes whose cost is flat at any lane
-// occupancy. On AVX2 it is one quad: the quad kernel's cost is flat at four
-// lanes, so a quad-sized tail flushes directly instead of riding the buffer.
-func flushChunks() int {
-	if cpuid.HasAVX512 {
-		return availableLanes
-	}
-	if cpuid.HasAVX2 {
-		return 4
-	}
-	return 1
-}
-
-// directFlushChunks returns the largest whole direct-flush unit in n.
-func directFlushChunks(n int) int {
-	flush := flushChunks()
-	return n - n%flush
-}
-
-// streamChunks is the streaming-path flush unit. SIMD-capable amd64 uses the
-// full width; the generic fallback flushes one leaf at a time.
-var streamChunks = func() int {
-	if cpuid.HasAVX512 || cpuid.HasAVX2 {
-		return availableLanes
-	}
-	return 1
-}()
-
-// growJumpMin is the buffered byte count at which a regrowing leaf buffer
-// jumps straight to the streaming high-water mark instead of letting append
-// re-copy through its doubling steps. Jumping eagerly on any regrowth
-// measured -17% at 64 KiB streaming but +5..7% at 28-32 KiB (Emerald
-// Rapids): short streams never fill the 72 KiB high-water allocation and
-// only pay for zeroing it. Four chunks is past every shape that stops short
-// (a 32 KiB stream peaks at three buffered chunks) while keeping most of
-// the large-stream win (-4.7% at 64 KiB).
-var growJumpMin = func() int {
-	if cpuid.HasAVX512 || cpuid.HasAVX2 {
-		return 4 * ChunkSize
-	}
-	return 0
-}()
-
 // hasLeafX8 reports whether amd64 can drain whole 8-leaf batches through a
 // dedicated SIMD kernel.
 var hasLeafX8 = cpuid.HasAVX512 || cpuid.HasAVX2
@@ -90,11 +45,11 @@ const pairRemainderMax = 2
 // availableLanes chunks fuse into one pass (2-wide XMM at exactly two,
 // 8-wide masked above), replacing the serial S_0 absorption: at or below one
 // pass this is a strict win, and above it the 1..7 chunks the fused pass
-// strands past the last whole batch drain in one fused pass at finalization
+// strands past the last whole batch drain in one pass with the partial tail
 // (tail fusion), so fusing still saves the serial S_0 pass outright. The
 // exception is a chunk count of 1 mod availableLanes with less than a whole
 // rate-block of tail: the stranded leaf then has no partial to pair with,
-// its serial pass cancels the saving, and fusion only adds a buffer copy.
+// its serial pass cancels the saving.
 func fuseS0Chunks(chunks, tail int) int {
 	if chunks < 2 {
 		return 0
@@ -131,7 +86,7 @@ func fuseS0Chunks(chunks, tail int) int {
 	// multiple-of-8 drain into a 5-mod-8 remainder), 5 mod 8 (the fused
 	// leftovers strand a leaf), and 2 mod 8, where a quad costs about the two
 	// serial passes fusion saves but the fused leftovers add a net remainder
-	// quad plus buffering — a measured net loss.
+	// quad plus a narrow remainder — a measured net loss.
 	if chunks == 2 {
 		return 2
 	}
@@ -141,9 +96,9 @@ func fuseS0Chunks(chunks, tail int) int {
 	return min(chunks, 4)
 }
 
-// fuseTailChunks returns how many trailing complete leaves finalization
-// should fold into one pass with the partial leaf's whole rate-blocks, or 0
-// to keep the serial path. On AVX-512 the tail rides a 2..7-leaf remainder
+// fuseTailChunks returns how many trailing complete leaves to fold into one
+// pass with a partial leaf's whole rate-blocks, or 0 to keep the serial path.
+// On AVX-512 the tail rides a 2..7-leaf remainder
 // batch as an extra masked gather lane essentially free; whole multiples of
 // 8 fill all lanes and drain through the x8 kernel instead. A single
 // leftover leaf pairs with the tail in a 2-wide XMM pass: the masked run
@@ -278,20 +233,20 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 // leaf: one pass computes the final node's S_0 || marker state (lane 0), n-1
 // leaf CVs (cvs[32:n*32]), and absorbs the partial leaf's nShared whole
 // rate-blocks — read from input[n*ChunkSize:] — into lane n, whose
-// mid-absorption state lands in pending for the caller to continue. input
+// mid-absorption state lands in partial for the caller to continue. input
 // must be at least n*ChunkSize + nShared*rate contiguous bytes and final a
 // zero sponge. Lane n must be free: on AVX-512 a 4-wide YMM quad hosts n in
 // 2..3 and a masked 8-wide pass n in 4..7; a quad pass hosts n in 2..3 on
 // AVX2.
-func processS0LeavesTailArch(input []byte, n, nShared int, final, pending *sponge, cvs *[256]byte) bool {
+func processS0LeavesTailArch(input []byte, n, nShared int, final, partial *sponge, cvs *[256]byte) bool {
 	switch {
 	case n < 2:
 		return false
 	case cpuid.HasAVX512:
 		if n <= 3 {
-			processS0LeavesQuadTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
+			processS0LeavesQuadTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
 		} else if n <= 7 {
-			processS0LeavesTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
+			processS0LeavesTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
 		} else {
 			return false
 		}
@@ -299,19 +254,20 @@ func processS0LeavesTailArch(input []byte, n, nShared int, final, pending *spong
 		if n > 3 {
 			return false
 		}
-		processS0LeavesQuadTailAVX2(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &pending.a[0])
+		processS0LeavesQuadTailAVX2(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
 	default:
 		return false
 	}
 	final.pos = ChunkSize%rate + len(kt12Marker) // mid-block after S_0 || marker
-	pending.pos = 0                              // whole rate-blocks absorbed
+	partial.pos = 0                              // whole rate-blocks absorbed
 	return true
 }
 
 // fuseS0TailBlocks returns how many whole rate-blocks of a first write's
 // trailing partial chunk should ride the fused S_0 pass in an otherwise-idle
-// lane, or 0 to leave the tail for finalization. The caller must be fusing
-// every complete chunk (the partial's data directly follows them). On
+// lane, or 0 to leave the tail for ordinary incremental absorption. The caller
+// must be fusing every complete chunk (the partial's data directly follows
+// them). On
 // AVX-512 with 2..7 chunks the pass has a free lane (a YMM quad up to three
 // chunks, the masked 8-wide pass above), so the tail's blocks ride free —
 // except at exactly two chunks, where S_0 fusion otherwise takes a cheaper

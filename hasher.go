@@ -26,10 +26,7 @@
 // [RFC 9861]: https://www.rfc-editor.org/rfc/rfc9861.html
 package kt128
 
-import (
-	"hash"
-	"slices"
-)
+import "hash"
 
 const (
 	// ChunkSize is the KT128 chunk size in bytes.
@@ -54,37 +51,43 @@ func (*noCopy) Unlock() {}
 // Hasher is an incremental KT128 instance. Its zero value is ready to use with
 // no customization string.
 //
+// [New] retains its customization slice by reference. The caller must keep that
+// slice's contents unchanged while the Hasher or any clone derived from it may
+// be used.
+// Write and Read do not retain their input or output slices.
+//
 // A Hasher must not be copied after first use. Use [Hasher.Clone] to create an
 // independent copy. A Hasher is not safe for concurrent mutation.
 type Hasher struct {
-	noCopy     noCopy
-	buf        []byte       // buffered leaf data (tree mode only)
-	c          []byte       // owned copy of the customization string
-	final      sponge       // final-node sponge state
-	pending    pendingState // partially-absorbed trailing leaf from a fused first write
-	pos        uint64       // total bytes written via Write
-	leafCount  uint64       // total leaf CVs written to final so far
-	pendingLen int          // bytes absorbed into pending; 0 = no pending leaf
-	state      uint8        // lifecycle: stateSingle -> stateTree -> stateFinalized
-	ds         byte         // KT128 customization byte for finalization (singleDS or treeDS)
+	noCopy    noCopy
+	c         []byte // caller-owned customization string, retained by reference
+	final     sponge // final-node sponge state
+	leaf      sponge // current partial leaf (tree mode only)
+	pos       uint64 // total bytes written via Write
+	leafCount uint64 // total leaf CVs written to final so far
+	leafLen   int    // bytes absorbed into leaf; 0 = no partial leaf
+	state     uint8  // lifecycle: stateSingle -> stateTree -> stateFinalized
+	ds        byte   // KT128 customization byte for finalization (singleDS or treeDS)
 }
 
-// New returns a new Hasher using c as the KT128 customization string. It copies
-// c, so the caller may modify or reuse c after New returns. Pass nil for no
-// customization.
+// New returns a new Hasher using c as the KT128 customization string. It retains
+// c by reference without copying it. The caller must not modify c while the
+// returned Hasher or any Hasher cloned from it may be used, and remains
+// responsible for clearing c if necessary. Pass nil for no customization.
 func New(c []byte) *Hasher {
-	return &Hasher{c: slices.Clone(c)}
+	return &Hasher{c: c}
 }
 
 // BlockSize returns the 168-byte TurboSHAKE128 sponge rate. Write accepts inputs
-// of any length, but rate-aligned writes may be processed more efficiently.
+// of any length; calls containing multiple complete chunks can use parallel leaf
+// processing.
 func (h *Hasher) BlockSize() int {
 	return rate
 }
 
 // Pos returns the total number of message bytes accepted by [Hasher.Write]
-// since construction or the last call to [Hasher.Reset] or [Hasher.Clear]. It
-// is exact below 2^64 bytes and wraps modulo 2^64 for longer streams.
+// since construction or the last call to [Hasher.Reset]. It is exact below
+// 2^64 bytes and wraps modulo 2^64 for longer streams.
 func (h *Hasher) Pos() uint64 {
 	return h.pos
 }

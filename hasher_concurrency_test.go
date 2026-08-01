@@ -11,7 +11,7 @@ import (
 // many goroutines at once. Run under -race (the standard CI configs do), they
 // assert that the package holds no shared mutable state: clones evolve
 // independently, the SIMD leaf kernels are reentrant, and Clone/Pos never
-// mutate their receiver. The race detector instruments the Go-level buffering and
+// mutate their receiver. The race detector instruments the Go-level state and
 // state machine; the assembly kernels take only caller-owned pointers (input,
 // cvs, sponge) and touch no package globals, so they are reentrant by
 // construction and the correctness checks here exercise them concurrently. Each
@@ -21,12 +21,12 @@ import (
 // TestConcurrentCloneIndependence clones one tree-mode hasher into many
 // goroutines, evolves each clone with distinct data, and confirms every clone
 // matches a sequentially computed reference and that the shared source is
-// unchanged. Clone reads and copies the source customization slice from every
-// goroutine at once, so a race here means Clone is not a pure read.
+// unchanged. Clone reads the source and shares its immutable customization
+// slice, so a race here means Clone is not a pure read.
 func TestConcurrentCloneIndependence(t *testing.T) {
 	const workers = 8
 	custom := []byte("ctx")
-	baseMsg := ptn(2*ChunkSize + 100) // tree mode: Clone copies buf + sponge + leafCount
+	baseMsg := ptn(2*ChunkSize + 100) // tree mode: Clone copies both sponge states and counters
 
 	base := New(custom)
 	if _, err := base.Write(baseMsg); err != nil {

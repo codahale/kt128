@@ -68,7 +68,7 @@ func TestCustomizationFinalizationDoesNotAllocate(t *testing.T) {
 	for _, size := range []int{56, 128, ChunkSize + 7} {
 		custom := ptn(size)
 		allocs := testing.AllocsPerRun(20, func() {
-			h := Hasher{c: custom}
+			h := New(custom)
 			_, _ = h.Read(out[:])
 		})
 		if allocs != 0 {

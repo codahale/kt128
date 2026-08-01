@@ -10,22 +10,6 @@ package kt128
 
 const availableLanes = 1
 
-// flushChunks is the smallest chunk count the direct fast path may flush
-// without meaningful throughput loss; the scalar fallback has only one speed.
-func flushChunks() int { return 1 }
-
-// directFlushChunks returns the complete scalar prefix in n.
-func directFlushChunks(n int) int { return n }
-
-// streamChunks is the streaming-path flush unit; the scalar fallback has no
-// batch kernel, so it is a single chunk.
-const streamChunks = availableLanes
-
-// growJumpMin is the buffered byte count at which a regrowing leaf buffer
-// jumps straight to the streaming high-water mark; with a single-chunk
-// flush unit the buffer never accumulates far, so any regrowth may jump.
-const growJumpMin = 0
-
 // hasLeafX8 reports that the scalar fallback has no batch kernel; the
 // generic 8-wide path is eight serial sponges, no faster than the x1 loop.
 const hasLeafX8 = false

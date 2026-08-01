@@ -9,16 +9,13 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	}
 
 	n := len(p)
-	fusedS0 := false
-
 	if h.state == stateSingle {
 		// Fused fast path: with S_0 and at least one full leaf contiguous in
 		// p and nothing absorbed yet, process them together in one fused
-		// kernel pass. Each arch decides how many chunks to take (and when
-		// fusion would strand leaves in the buffer) via fuseS0Chunks. When
-		// the pass consumes every complete chunk, the trailing partial
-		// chunk's whole rate-blocks may ride an idle lane (fuseS0TailBlocks),
-		// leaving a pending partially-absorbed leaf.
+		// kernel pass. Each arch decides how many chunks to take via
+		// fuseS0Chunks. When the pass consumes every complete chunk, the
+		// trailing partial chunk's whole rate-blocks may ride an idle lane
+		// (fuseS0TailBlocks), leaving a partially absorbed leaf.
 		nFuse, nTail := 0, 0
 		if h.pos == 0 {
 			chunks, tail := len(p)/ChunkSize, len(p)%ChunkSize
@@ -28,10 +25,9 @@ func (h *Hasher) Write(p []byte) (int, error) {
 			}
 		}
 		if nFuse >= 2 && h.startTreeModeFused(p, nFuse, nTail) {
-			// The rest of p is ordinary leaf data — or, with a pending
-			// leaf, its ragged remnant, buffered by extendPending below.
-			p = p[nFuse*ChunkSize+h.pendingLen:]
-			fusedS0 = true
+			// The rest of p continues the partial leaf exported by the fused
+			// pass, if any, then becomes ordinary leaf data.
+			p = p[nFuse*ChunkSize+h.leafLen:]
 		} else {
 			// Single-node finalization and tree-mode S_0 absorb the first
 			// chunk into the final node identically, so message bytes are
@@ -50,130 +46,45 @@ func (h *Hasher) Write(p []byte) (int, error) {
 	}
 
 	h.pos += uint64(n)
-
-	// A pending trailing leaf holds the stream position: p continues it.
-	if h.pendingLen > 0 {
-		if p = h.extendPending(p); len(p) == 0 {
-			return n, nil
-		}
-	}
-
-	// A fused first write's chunk-aligned tail drains in place as well: the
-	// fused pass makes this bulk traffic ending on a chunk boundary — the
-	// same shape the direct path drains in place — but the leftover may sit
-	// below the flush-unit gate, and streaming it costs up to seven chunks of
-	// memcpy plus an allocation for the same narrow pass at finalization
-	// (+11..38% at 80..120 KiB one-shots, Emerald Rapids). A ragged tail
-	// still buffers whole so its trailing chunks can ride a fused pass with
-	// the partial at finalization.
-	if r := len(p) / ChunkSize; fusedS0 && r >= 2 && len(p) == r*ChunkSize {
-		h.processLeafBatch(p, r)
-		return n, nil
-	}
-
-	lanes := streamChunks
-	flush := flushChunks()
-
-	// Direct fast path: process chunks in place from p to avoid copying. With
-	// buffered data present, mid-size writes keep the buffer-and-batch route
-	// below so buffered chunks aren't pushed through narrow kernels
-	// prematurely; where flushChunks() == streamChunks this reduces to the
-	// flush-unit threshold alone.
-	if len(p) >= flush*ChunkSize && (len(h.buf) == 0 || len(p) >= lanes*ChunkSize) {
-		// Drain any buffered data: complete the partial tail with bytes from
-		// p, then flush all buffered chunks as a single batch.
-		if len(h.buf) > 0 {
-			if partial := len(h.buf) % ChunkSize; partial != 0 {
-				need := ChunkSize - partial
-				h.bufferTail(p[:need])
-				p = p[need:]
-			}
-
-			// Complete a SIMD-width batch from buffered whole chunks before
-			// draining it. The bounded copy avoids sending a small buffered
-			// remainder through a narrow kernel when this write can fill all
-			// lanes.
-			if buffered := len(h.buf) / ChunkSize; buffered < lanes && len(p) >= (lanes-buffered)*ChunkSize {
-				take := (lanes - buffered) * ChunkSize
-				h.bufferTail(p[:take])
-				p = p[take:]
-			}
-			h.processLeafBatch(h.buf, len(h.buf)/ChunkSize)
-			h.buf = h.buf[:0]
-		}
-
-		// Flush the architecture-selected complete-chunk prefix in place.
-		// Complete message leaves need no lookahead, since finalization always
-		// adds at least the customization length encoding.
-		processable := len(p) / ChunkSize
-		nFlush := directFlushChunks(processable)
-		if nFlush > 0 {
-			h.processLeafBatch(p[:nFlush*ChunkSize], nFlush)
-			p = p[nFlush*ChunkSize:]
-		}
-
-		// A chunk-aligned remainder of two or more after a whole-unit flush
-		// drains in place as well: with no partial tail to extend, finalization
-		// would push these same chunks through the same narrow kernels from the
-		// buffer, so buffering buys no better pass and costs the copy plus its
-		// allocation (up to seven chunks). A sub-chunk continuation could have
-		// completed the buffered chunks into a whole batch, but a stream
-		// overwhelmingly ends at a bulk write, and the miss costs one narrow
-		// pass. A single trailing chunk still buffers — an x1 pass now or at
-		// finalization costs the same, and a later write may pair it — and a
-		// ragged tail still buffers whole, so its trailing chunks can ride a
-		// fused pass with the partial at finalization.
-		if r := len(p) / ChunkSize; nFlush > 0 && r >= 2 && len(p) == r*ChunkSize {
-			h.processLeafBatch(p, r)
-			p = p[:0]
-		}
-
-		// Buffer the tail.
-		h.bufferTail(p)
-		return n, nil
-	}
-
-	// Streaming path: accumulate in buf, flush in whole flush units.
-	h.bufferTail(p)
-	if processable := len(h.buf) / ChunkSize; processable >= lanes {
-		nFlush := (processable / lanes) * lanes
-		h.processLeafBatch(h.buf[:nFlush*ChunkSize], nFlush)
-		remaining := copy(h.buf, h.buf[nFlush*ChunkSize:])
-		h.buf = h.buf[:remaining]
-	}
+	h.absorbTreeData(p)
 	return n, nil
 }
 
-// bufferTail appends p to the leaf buffer. The first fill keeps append's
-// exact sizing so one-shot tails stay small; any later growth jumps straight
-// to the streaming high-water mark — one whole flush unit plus the partial
-// chunk in progress — so steady-state streaming settles after a single
-// growth instead of re-copying the buffer through append's doubling steps.
-func (h *Hasher) bufferTail(p []byte) {
-	if need := len(h.buf) + len(p); cap(h.buf) < need {
-		if cap(h.buf) != 0 && need >= growJumpMin {
-			h.growBuf(need)
-		} else {
-			old := h.buf
-			h.buf = append(h.buf, p...)
-			if cap(old) > 0 {
-				wipeBytes(old[:cap(old)])
+// absorbTreeData absorbs tree-mode input without retaining its bytes. A partial
+// leaf is continued through h.leaf; complete leaves contiguous in p still use
+// the SIMD batch path.
+func (h *Hasher) absorbTreeData(p []byte) {
+	if h.leafLen > 0 {
+		n := min(ChunkSize-h.leafLen, len(p))
+		h.leaf.absorb(p[:n])
+		h.leafLen += n
+		p = p[n:]
+		if h.leafLen < ChunkSize {
+			return
+		}
+		h.finishLeaf()
+	}
+
+	nFull := len(p) / ChunkSize
+	tail := p[nFull*ChunkSize:]
+	if nFull > 0 && len(tail) > 0 {
+		if n := fuseTailChunks(nFull, len(tail)/rate); n > 0 {
+			lead := nFull - n
+			if lead > 0 {
+				h.processLeafBatch(p[:lead*ChunkSize], lead)
 			}
+			h.startLeafFused(p[lead*ChunkSize:], n, tail)
 			return
 		}
 	}
-	h.buf = append(h.buf, p...)
-}
 
-// growBuf reallocates the leaf buffer with capacity for the streaming
-// high-water mark (or need, if larger). Kept out of bufferTail so the no-grow
-// fast path stays within the inlining budget.
-func (h *Hasher) growBuf(need int) {
-	old := h.buf
-	grown := make([]byte, len(h.buf), max(need, (streamChunks+1)*ChunkSize))
-	copy(grown, h.buf)
-	wipeBytes(old[:cap(old)])
-	h.buf = grown
+	if nFull > 0 {
+		h.processLeafBatch(p[:nFull*ChunkSize], nFull)
+	}
+	if len(tail) > 0 {
+		h.leaf.absorb(tail)
+		h.leafLen = len(tail)
+	}
 }
 
 // processLeafBatch computes leaf CVs for nLeaves complete chunks, draining
@@ -264,27 +175,3 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 
 	h.leafCount += uint64(nLeaves)
 }
-
-func (h *Hasher) extendPending(p []byte) []byte {
-	pending := pendingSponge(&h.pending)
-	room := ChunkSize - h.pendingLen - len(h.buf)
-	if len(p) < room {
-		h.bufferTail(p)
-		return nil
-	}
-	pending.absorb(h.buf)
-	pending.absorb(p[:room])
-	pending.padPermute(leafDS)
-	h.final.absorbCV(pending)
-	h.leafCount++
-	h.pendingLen = 0
-	h.buf = h.buf[:0]
-	return p[room:]
-}
-
-// absorbMessage absorbs the rest of the logical message into h.final, setting
-// h.ds. Message bytes up to one chunk are already in h.final, so in single-node
-// mode only the customization string and its length encoding remain, and they
-// decide whether the input fits a single node. In tree mode, the buffered leaf
-// tail and those segments are processed as a single byte stream without
-// concatenating or copying them. It does not modify h.buf.

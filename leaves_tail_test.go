@@ -88,17 +88,17 @@ func TestPartialLeafFusionSizes(t *testing.T) {
 	}
 }
 
-// TestWritePendingContinuation cross-checks writes that continue a fused
-// first write's pending partial leaf against the RFC 9861 reference: the
+// TestWritePartialLeafContinuation cross-checks writes that continue a fused
+// first write's partial leaf against the RFC 9861 reference: the
 // first write's shape triggers S_0+tail fusion (on platforms that have it),
-// and the continuation must be equivalent whether it leaves the pending leaf
+// and the continuation must be equivalent whether it leaves the leaf
 // incomplete, completes it exactly (or one byte around that boundary), or
-// runs past it into more leaves. A clone taken mid-pending must continue
+// runs past it into more leaves. A clone taken mid-leaf must continue
 // identically. The body is a helper so the amd64 tests can rerun it with the
 // AVX2 kernels forced.
-func TestWritePendingContinuation(t *testing.T) { testWritePendingContinuation(t) }
+func TestWritePartialLeafContinuation(t *testing.T) { testWritePartialLeafContinuation(t) }
 
-func testWritePendingContinuation(t *testing.T) {
+func testWritePartialLeafContinuation(t *testing.T) {
 	for _, first := range []int{2*ChunkSize + 4096, 3*ChunkSize + 4096, 3*ChunkSize + 4200, 7*ChunkSize + 8191} {
 		room := ChunkSize - first%ChunkSize
 		for _, cont := range []int{0, 1, 100, 4096, room - 1, room, room + 1, room + ChunkSize, room + 9*ChunkSize + 17} {

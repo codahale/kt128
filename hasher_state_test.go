@@ -91,6 +91,9 @@ func TestReset(t *testing.T) {
 	h := New(nil)
 	_, _ = h.Write(ptn(ChunkSize + 1))
 	h.Reset()
+	if h.final != (sponge{}) || h.leaf != (sponge{}) || h.leafLen != 0 {
+		t.Fatalf("Reset retained sponge state: %#v", h)
+	}
 	_, _ = h.Write(ptn(ChunkSize + 1))
 
 	fresh := New(nil)
@@ -107,84 +110,16 @@ func TestReset(t *testing.T) {
 	}
 }
 
-func TestClear(t *testing.T) {
+func TestCustomizationStringRetained(t *testing.T) {
 	custom := ptn(41)
 	h := New(custom)
+	clone := h.Clone()
 
-	// Fill the entire buffer allocation, including capacity beyond its length,
-	// so Clear must scrub storage that may retain bytes from earlier writes.
-	h.buf = make([]byte, ChunkSize, ChunkSize+257)
-	buffer := h.buf[:cap(h.buf)]
-	for i := range buffer {
-		buffer[i] = 0xA5
+	if &h.c[0] != &custom[0] {
+		t.Fatal("New copied the customization string")
 	}
-	h.buf = h.buf[:0]
-	h.final.a[0] = 1
-	h.final.a[lanes-1] = 2
-	h.final.pos = 17
-	h.pos = ChunkSize
-	h.leafCount = 3
-	h.pendingLen = rate
-	h.state = stateFinalized
-	h.ds = treeDS
-	final := &h.final
-
-	h.Clear()
-
-	for i, b := range buffer {
-		if b != 0 {
-			t.Fatalf("buffer[%d] = %#x after Clear, want 0", i, b)
-		}
-	}
-	if *final != (sponge{}) {
-		t.Fatalf("final sponge after Clear = %#v, want zero", *final)
-	}
-	if h.buf != nil {
-		t.Fatalf("buffer after Clear = %#v, want nil", h.buf)
-	}
-	if h.c != nil {
-		t.Fatalf("customization after Clear = %#v, want nil", h.c)
-	}
-	if h.pos != 0 || h.leafCount != 0 || h.pendingLen != 0 || h.state != stateSingle || h.ds != 0 {
-		t.Fatalf("Hasher metadata was not reset by Clear: %#v", h)
-	}
-	msg := ptn(ChunkSize + 1)
-	_, _ = h.Write(msg)
-	got := make([]byte, 64)
-	_, _ = h.Read(got)
-
-	fresh := New(nil)
-	_, _ = fresh.Write(msg)
-	want := make([]byte, 64)
-	_, _ = fresh.Read(want)
-	if !bytes.Equal(got, want) {
-		t.Fatal("Hasher reused after Clear differs from a fresh uncustomized Hasher")
-	}
-}
-
-// TestCustomizationStringCopied verifies that New copies the customization
-// string, so mutating the caller's slice afterward cannot change the output.
-func TestCustomizationStringCopied(t *testing.T) {
-	msg := ptn(100)
-	custom := ptn(41) // caller-owned, mutable
-
-	// Reference output for the original customization.
-	want := make([]byte, 64)
-	ref := New(custom)
-	_, _ = ref.Write(msg)
-	_, _ = ref.Read(want)
-
-	// Mutate the caller's slice after constructing the hasher.
-	h := New(custom)
-	for i := range custom {
-		custom[i] ^= 0xFF
-	}
-	_, _ = h.Write(msg)
-	got := make([]byte, 64)
-	_, _ = h.Read(got)
-
-	if !bytes.Equal(got, want) {
-		t.Fatal("mutating the caller's customization slice changed the output; New did not copy it")
+	if &clone.c[0] != &custom[0] {
+		t.Fatal("Clone copied the customization string")
 	}
 }
 

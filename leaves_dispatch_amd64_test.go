@@ -12,20 +12,13 @@ import (
 
 func TestWriteForceGenericFallback(t *testing.T) {
 	savedAVX512, savedAVX2 := cpuid.HasAVX512, cpuid.HasAVX2
-	savedStreamChunks, savedGrowJumpMin := streamChunks, growJumpMin
 	savedHasLeafX8 := hasLeafX8
 	defer func() {
 		cpuid.HasAVX512, cpuid.HasAVX2 = savedAVX512, savedAVX2
-		streamChunks, growJumpMin = savedStreamChunks, savedGrowJumpMin
 		hasLeafX8 = savedHasLeafX8
 	}()
 	cpuid.HasAVX512, cpuid.HasAVX2 = false, false
-	streamChunks, growJumpMin = 1, 0
 	hasLeafX8 = false
-
-	if got := flushChunks(); got != 1 {
-		t.Fatalf("flushChunks() = %d, want 1", got)
-	}
 
 	for _, size := range []int{
 		0, ChunkSize, 2 * ChunkSize, 9*ChunkSize + 137, 1024 * 1024,
@@ -61,44 +54,41 @@ func TestWriteForceAVX2DirectFlush(t *testing.T) {
 		if h.leafCount != 7 {
 			t.Fatalf("leaf count = %d, want 7", h.leafCount)
 		}
-		if cap(h.buf) != 0 {
-			t.Fatalf("buffer capacity = %d, want 0", cap(h.buf))
+		if h.leafLen != 0 {
+			t.Fatalf("partial leaf bytes = %d, want 0", h.leafLen)
 		}
 	})
 
-	t.Run("sub-batch flush with buffered tail", func(t *testing.T) {
+	t.Run("sub-batch flush with partial leaf", func(t *testing.T) {
 		h := New(nil)
-		// S_0+3 leaves fused, 4 leaves in place, 3 chunks + 37 bytes buffered.
+		// S_0+3 leaves fuse; the remaining complete leaves process in place.
 		_, _ = h.Write(ptn(11*ChunkSize + 37))
 
-		if h.leafCount != 7 {
-			t.Fatalf("leaf count = %d, want 7", h.leafCount)
+		if h.leafCount != 10 {
+			t.Fatalf("leaf count = %d, want 10", h.leafCount)
 		}
-		if len(h.buf) != 3*ChunkSize+37 {
-			t.Fatalf("buffered bytes = %d, want %d", len(h.buf), 3*ChunkSize+37)
+		if h.leafLen != 37 {
+			t.Fatalf("partial leaf bytes = %d, want 37", h.leafLen)
 		}
 	})
 }
 
 // TestWriteS0TailFusion pins the AVX-512 S_0+tail fused scheduling: a ragged
 // one-shot first write of 2..7 chunks rides the partial's whole rate-blocks
-// in an idle lane of the fused pass, leaving a pending leaf and only the
-// ragged remnant buffered. Output correctness for these shapes is covered by
-// TestPartialLeafFusionSizes and TestWritePendingContinuation.
+// in an idle lane of the fused pass, leaving an incremental partial leaf.
+// Output correctness for these shapes is covered by
+// TestPartialLeafFusionSizes and TestWritePartialLeafContinuation.
 func TestWriteS0TailFusion(t *testing.T) {
 	if !cpuid.HasAVX512 {
 		t.Skip("no AVX-512")
 	}
 
-	t.Run("ragged one-shot leaves a pending leaf", func(t *testing.T) {
+	t.Run("ragged one-shot leaves a partial leaf", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(3*ChunkSize + 4096)) // S_0+2 leaves fused, 24 tail blocks ride
 
-		if h.pendingLen != 24*rate {
-			t.Fatalf("pendingLen = %d, want %d", h.pendingLen, 24*rate)
-		}
-		if want := 4096 - 24*rate; len(h.buf) != want {
-			t.Fatalf("buffered bytes = %d, want %d", len(h.buf), want)
+		if h.leafLen != 4096 {
+			t.Fatalf("partial leaf bytes = %d, want 4096", h.leafLen)
 		}
 		if h.leafCount != 2 {
 			t.Fatalf("leaf count = %d, want 2", h.leafCount)
@@ -109,8 +99,8 @@ func TestWriteS0TailFusion(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(2*ChunkSize + (s0TailPairMin-1)*rate))
 
-		if h.pendingLen != 0 {
-			t.Fatalf("pendingLen = %d, want 0", h.pendingLen)
+		if want := (s0TailPairMin - 1) * rate; h.leafLen != want {
+			t.Fatalf("partial leaf bytes = %d, want %d", h.leafLen, want)
 		}
 	})
 
@@ -118,8 +108,8 @@ func TestWriteS0TailFusion(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(2*ChunkSize + s0TailPairMin*rate))
 
-		if h.pendingLen != s0TailPairMin*rate {
-			t.Fatalf("pendingLen = %d, want %d", h.pendingLen, s0TailPairMin*rate)
+		if h.leafLen != s0TailPairMin*rate {
+			t.Fatalf("partial leaf bytes = %d, want %d", h.leafLen, s0TailPairMin*rate)
 		}
 	})
 
@@ -127,14 +117,14 @@ func TestWriteS0TailFusion(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(8*ChunkSize + 4096))
 
-		if h.pendingLen != 0 {
-			t.Fatalf("pendingLen = %d, want 0", h.pendingLen)
+		if h.leafLen != 4096 {
+			t.Fatalf("partial leaf bytes = %d, want 4096", h.leafLen)
 		}
 	})
 }
 
 // TestS0TailFusionForceAVX2 reruns the S_0+tail kernel differential and
-// pending-continuation tests with the AVX2 quad kernels forced, so both
+// partial-leaf continuation tests with the AVX2 quad kernels forced, so both
 // kernel families are exercised on an AVX-512 host.
 func TestS0TailFusionForceAVX2(t *testing.T) {
 	if !cpuid.HasAVX2 {
@@ -146,7 +136,7 @@ func TestS0TailFusionForceAVX2(t *testing.T) {
 	defer func() { cpuid.HasAVX512 = true }()
 	cpuid.HasAVX512 = false
 	t.Run("kernel", testProcessS0LeavesTail)
-	t.Run("continuation", testWritePendingContinuation)
+	t.Run("continuation", testWritePartialLeafContinuation)
 }
 
 // TestWriteS0TailFusionAVX2 pins the AVX2 S_0+tail fused scheduling: a
@@ -161,30 +151,24 @@ func TestWriteS0TailFusionAVX2(t *testing.T) {
 	defer func() { cpuid.HasAVX512 = saved }()
 	cpuid.HasAVX512 = false
 
-	t.Run("two-chunk ragged one-shot leaves a pending leaf", func(t *testing.T) {
+	t.Run("two-chunk ragged one-shot leaves a partial leaf", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(2*ChunkSize + 4096)) // S_0+1 leaf fused, 24 tail blocks ride
 
-		if h.pendingLen != 24*rate {
-			t.Fatalf("pendingLen = %d, want %d", h.pendingLen, 24*rate)
-		}
-		if want := 4096 - 24*rate; len(h.buf) != want {
-			t.Fatalf("buffered bytes = %d, want %d", len(h.buf), want)
+		if h.leafLen != 4096 {
+			t.Fatalf("partial leaf bytes = %d, want 4096", h.leafLen)
 		}
 		if h.leafCount != 1 {
 			t.Fatalf("leaf count = %d, want 1", h.leafCount)
 		}
 	})
 
-	t.Run("three-chunk ragged one-shot leaves a pending leaf", func(t *testing.T) {
+	t.Run("three-chunk ragged one-shot leaves a partial leaf", func(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(3*ChunkSize + 300)) // one whole tail block rides
 
-		if h.pendingLen != rate {
-			t.Fatalf("pendingLen = %d, want %d", h.pendingLen, rate)
-		}
-		if want := 300 - rate; len(h.buf) != want {
-			t.Fatalf("buffered bytes = %d, want %d", len(h.buf), want)
+		if h.leafLen != 300 {
+			t.Fatalf("partial leaf bytes = %d, want 300", h.leafLen)
 		}
 	})
 
@@ -192,8 +176,8 @@ func TestWriteS0TailFusionAVX2(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(4*ChunkSize + 4096))
 
-		if h.pendingLen != 0 {
-			t.Fatalf("pendingLen = %d, want 0", h.pendingLen)
+		if h.leafLen != 4096 {
+			t.Fatalf("partial leaf bytes = %d, want 4096", h.leafLen)
 		}
 	})
 }

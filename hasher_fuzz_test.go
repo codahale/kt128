@@ -14,7 +14,7 @@ import (
 // the streaming and tree logic against an independent implementation.
 //
 // The fuzzer varies message content, customization string, write chunking, and
-// output length, so it exercises the buffering, S_0 straddling, batch, and
+// output length, so it exercises incremental leaves, S_0 straddling, batch, and
 // remainder paths far more adversarially than a fixed corpus.
 func FuzzHasher(f *testing.F) {
 	f.Add([]byte(""), []byte(""), uint16(1), uint16(32))

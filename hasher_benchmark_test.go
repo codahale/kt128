@@ -1,6 +1,7 @@
 package kt128
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"testing"
@@ -40,6 +41,50 @@ func BenchmarkWriteStreaming(b *testing.B) {
 					_, _ = h.Write(msg[i:end])
 				}
 				_, _ = h.Read(out)
+			}
+		})
+	}
+}
+
+// BenchmarkWriteFragmented compares the fixed-state streaming path with an
+// explicitly buffered writer. The Hasher and bufio.Writer are reused so the
+// benchmark measures steady-state absorption rather than wrapper allocation.
+func BenchmarkWriteFragmented(b *testing.B) {
+	const size = 1024 * 1024
+	msg := ptn(size)
+	for _, fragment := range []int{1024, ChunkSize, 2 * ChunkSize, 4 * ChunkSize, 5 * ChunkSize, 8 * ChunkSize} {
+		name := fmt.Sprintf("%dB", fragment)
+		b.Run("raw/"+name, func(b *testing.B) {
+			h := New(nil)
+			var out [32]byte
+			b.SetBytes(size)
+			b.ReportAllocs()
+			for b.Loop() {
+				h.Reset()
+				for off := 0; off < len(msg); off += fragment {
+					_, _ = h.Write(msg[off:min(off+fragment, len(msg))])
+				}
+				_, _ = h.Read(out[:])
+			}
+		})
+	}
+
+	for _, bufferSize := range []int{4096, 5 * ChunkSize, 8 * ChunkSize} {
+		name := fmt.Sprintf("%dB", bufferSize)
+		b.Run("bufio/"+name, func(b *testing.B) {
+			h := New(nil)
+			w := bufio.NewWriterSize(h, bufferSize)
+			var out [32]byte
+			b.SetBytes(size)
+			b.ReportAllocs()
+			for b.Loop() {
+				h.Reset()
+				w.Reset(h)
+				for off := 0; off < len(msg); off += 1024 {
+					_, _ = w.Write(msg[off:min(off+1024, len(msg))])
+				}
+				_ = w.Flush()
+				_, _ = h.Read(out[:])
 			}
 		})
 	}

@@ -18,14 +18,14 @@ func (h *Hasher) Read(p []byte) (int, error) {
 // segments, then applies the final pad-and-permute.
 func (h *Hasher) finalize() {
 	var encoded [9]byte
-	h.absorbMessage(h.c, lengthEncode(encoded[:0], uint64(len(h.c))))
+	h.absorbCustomization(h.c, lengthEncode(encoded[:0], uint64(len(h.c))))
 	h.final.padPermute(h.ds)
 }
 
-// startTreeMode switches to tree mode: the final node has absorbed exactly
-// ChunkSize bytes of S_0, so absorb the KT12 marker after it.
-
-func (h *Hasher) absorbMessage(custom, encoded []byte) {
+// absorbCustomization absorbs the customization string and its length encoding
+// into the logical KT128 input. Message bytes up to one chunk are already in
+// h.final; tree-mode data continues through the incremental leaf state.
+func (h *Hasher) absorbCustomization(custom, encoded []byte) {
 	if h.state == stateSingle {
 		room := ChunkSize - int(h.pos)
 		if len(custom) <= room && len(encoded) <= room-len(custom) {
@@ -51,50 +51,13 @@ func (h *Hasher) absorbMessage(custom, encoded []byte) {
 		h.startTreeMode()
 	}
 
-	buf := h.buf
-
-	// A pending trailing leaf from a fused first write: the remaining
-	// logical data is its ragged remnant (all of buf) followed by custom ||
-	// encoded, absorbed straight into the exported leaf state.
-	if h.pendingLen > 0 {
-		pending := pendingSponge(&h.pending)
-		pending.absorb(buf)
-		room := ChunkSize - h.pendingLen - len(buf)
-		n := min(room, len(custom))
-		pending.absorb(custom[:n])
-		custom = custom[n:]
-		room -= n
-		n = min(room, len(encoded))
-		pending.absorb(encoded[:n])
-		encoded = encoded[n:]
-		pending.padPermute(leafDS)
-		h.final.absorbCV(pending)
-		h.leafCount++
-		h.absorbContiguousLeafParts(custom, encoded)
-	} else {
-		// Tree mode: process buf || custom || encoded as leaves S_1, S_2, ...
-		// plus terminator. Complete leaves lying entirely within buf use the SIMD
-		// batch path directly; head holds the trailing < ChunkSize message bytes.
-		nFull := len(buf) / ChunkSize
-		head := buf[nFull*ChunkSize:]
-
-		// Partial-leaf fusion: when the remaining data forms a single partial
-		// leaf, fold an arch-chosen count of trailing complete leaves and the
-		// partial leaf's whole rate-blocks into one kernel pass; leading leaves
-		// take the batch path.
-		remaining := ChunkSize - len(head)
-		fitsPartial := len(custom) < remaining && len(encoded) < remaining-len(custom)
-		if n := fuseTailChunks(nFull, len(head)/rate); n > 0 && fitsPartial {
-			if lead := nFull - n; lead > 0 {
-				h.processLeafBatch(buf[:lead*ChunkSize], lead)
-			}
-			h.fuseTrailingLeaves(buf[(nFull-n)*ChunkSize:], n, head, custom, encoded)
-		} else {
-			if nFull > 0 {
-				h.processLeafBatch(buf[:nFull*ChunkSize], nFull)
-			}
-			h.absorbTailLeaves(head, custom, encoded)
-		}
+	// Tree mode: customization data continues the current leaf stream. The
+	// non-empty length encoding ensures the logical stream has a final leaf,
+	// unless it completes one exactly.
+	h.absorbTreeData(custom)
+	h.absorbTreeData(encoded)
+	if h.leafLen > 0 {
+		h.finishLeaf()
 	}
 
 	// Terminator: LengthEncode(leafCount) || 0xFF || 0xFF.
@@ -102,13 +65,6 @@ func (h *Hasher) absorbMessage(custom, encoded []byte) {
 	h.final.absorb(lengthEncode(leBuf[:0], h.leafCount))
 	h.final.absorb(treeTerminator[:])
 }
-
-// fuseTrailingLeaves processes the final n complete leaves and the trailing
-// partial leaf head || custom || encoded together: the complete leaves and the
-// partial leaf's whole rate-blocks share one kernel pass, and the partial leaf's
-// ragged tail and padding finish in Go from the kernel-exported state. trailing
-// holds the n complete chunks followed by head; head, custom, and encoded
-// together must be less than ChunkSize bytes.
 
 func lengthEncode(b []byte, value uint64) []byte {
 	if value == 0 {

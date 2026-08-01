@@ -17,52 +17,6 @@ import (
 
 const availableLanes = 8
 
-// flushChunks is the smallest chunk count the direct fast path may flush
-// without meaningful throughput loss: the x2 pair kernel runs within ~5% of
-// the batch kernels per byte, so any even count is fine.
-func flushChunks() int {
-	if cpuid.HasSHA3 {
-		return 2
-	}
-	return 1
-}
-
-// directFlushChunks returns the complete-chunk prefix to process from a direct
-// write. Odd counts ending in 3, 5, 7, or 9 use hybrid batches plus pairs more
-// cheaply than flushing the even prefix and eventually processing the stranded
-// leaf serially. Counts ending in one retain that leaf so a later write can
-// complete a faster batch.
-func directFlushChunks(n int) int {
-	if !cpuid.HasSHA3 {
-		return n
-	}
-	switch n % 10 {
-	case 3, 5, 7, 9:
-		return n
-	default:
-		return n &^ 1
-	}
-}
-
-// streamChunks is the streaming-path flush unit: one 5-chunk hybrid batch,
-// so buffered flushes ride the hybrid kernel instead of parity-reducing to
-// pure-NEON pairs. A single batch flushes sooner than two — a 10-chunk unit
-// strands sub-10 messages in the buffer until finalization's pair-only drain
-// (measured +11.5% at 64 KiB streaming) — and caps the buffer at one batch.
-var streamChunks = func() int {
-	if cpuid.HasSHA3 {
-		return 5
-	}
-	return 1
-}()
-
-// growJumpMin is the buffered byte count at which a regrowing leaf buffer
-// jumps straight to the streaming high-water mark instead of letting append
-// re-copy through its doubling steps. On arm64 any regrowth jumps: the
-// 48 KiB high-water allocation is cheap here, and eager jumping measured
-// faster at every streaming size (up to -10% at 64 KiB, M4 Pro).
-const growJumpMin = 0
-
 // hasLeafX8 reports that arm64 has no dedicated x8 kernel; a remainder of
 // eight drains through the pair loop at the same cost.
 const hasLeafX8 = false
@@ -80,9 +34,8 @@ const pairRemainderMax = availableLanes
 // chunks, or 0 to skip fusion. Three nearly chunk-aligned inputs use the x3
 // hybrid for S_0 plus two leaves; other fused passes use the x2 pair. Fusion
 // is skipped when the leaves after S_0 form whole SIMD-width batches, since
-// consuming one would strand lanes-1 of them in the buffer instead of
-// flushing them all directly (measured +2.4% and an 8 KiB allocation at
-// 72 KiB).
+// consuming one would turn a favorable whole-batch shape into a narrow
+// remainder.
 func fuseS0Chunks(chunks, tail int) int {
 	if !cpuid.HasSHA3 {
 		return 0
@@ -97,9 +50,9 @@ func fuseS0Chunks(chunks, tail int) int {
 	return 0
 }
 
-// fuseTailChunks returns how many trailing complete leaves finalization
-// should fold into one pass with the partial leaf's whole rate-blocks, or 0
-// to keep the serial path. The arm64 pair kernel hosts exactly one complete
+// fuseTailChunks returns how many trailing complete leaves to fold into one
+// pass with a partial leaf's whole rate-blocks, or 0 to keep the serial path.
+// The arm64 pair kernel hosts exactly one complete
 // leaf. A single complete leaf always pairs with the tail. Three complete
 // leaves use x3 plus a serial short tail, switching to pair-plus-pair only once
 // the tail is long enough to hide meaningful work in the second pair lane.
