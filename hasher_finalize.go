@@ -17,8 +17,20 @@ func (h *Hasher) Read(p []byte) (int, error) {
 // finalize absorbs the customization string and its length encoding as separate
 // segments, then applies the final pad-and-permute.
 func (h *Hasher) finalize() {
+	if h.c == nil {
+		h.finalizeWithCustomization(nil)
+		return
+	}
+
+	if h.c.cleared {
+		panic("kt128: CustomizationString is cleared")
+	}
+	h.finalizeWithCustomization(h.c.data)
+}
+
+func (h *Hasher) finalizeWithCustomization(custom []byte) {
 	var encoded [9]byte
-	h.absorbCustomization(h.c, lengthEncode(encoded[:0], uint64(len(h.c))))
+	h.absorbCustomization(custom, lengthEncode(encoded[:0], uint64(len(custom))))
 	var ds uint8 = singleDS
 	if h.state != stateSingle {
 		ds = treeDS

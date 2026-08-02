@@ -60,21 +60,24 @@ passwords and other low-entropy secrets.
 
 ## Customization
 
-Pass a customization string to `New`:
+Construct an immutable customization string and pass it to `New`:
 
 ```go
-h := kt128.New([]byte("example-domain"))
+custom := kt128.NewCustomizationString([]byte("example-domain"))
+defer custom.Clear()
+
+h := kt128.New(custom)
 _, _ = h.Write([]byte("hello, world"))
 
 out := make([]byte, 64)
 _, _ = h.Read(out)
 ```
 
-`New` retains the customization slice by reference and does not copy it. The caller must keep the slice contents
-unchanged while the hasher or any clone derived from it may be used. This includes periods between `Reset` and the next
-hash: `Reset` preserves the same reference. Concurrent modification is a data race with finalization. If the
-customization is sensitive, the caller is responsible for clearing its storage after all referring hashers have been
-retired.
+`NewCustomizationString` copies its input, so the caller may immediately modify or clear the original slice. The
+resulting `CustomizationString` is immutable and may be shared by multiple hashers and their clones. `Clear` overwrites
+the owned storage and permanently invalidates the customization string. A hasher first finalized after its customization
+string has been cleared will panic; a hasher finalized before `Clear` continues squeezing normally. Call `Clear` only
+after every absorbing hasher and clone has been finalized or retired; it does not synchronize with finalization.
 
 ## Performance Notes
 
@@ -95,12 +98,15 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
 
 ## API Notes
 
-- `New(c)` creates a new hasher with customization string `c` (pass nil for none) and retains `c` by reference.
+- `NewCustomizationString(c)` defensively copies `c` into an immutable, shareable customization string.
+- `CustomizationString.Clear` wipes its owned storage and permanently invalidates the customization string. It must not
+  run concurrently with finalization or another call to `Clear`.
+- `New(c)` creates a new hasher sharing `c` (pass nil for none).
 - `Write` absorbs message bytes without retaining the input slice.
 - `Read(dst)` squeezes output into `dst`.
-- `Clone` copies the current hashing state but shares the caller-owned customization slice.
+- `Clone` copies the current hashing state but shares its immutable customization string.
 - `Reset` makes a best effort to zero message-dependent state and resets the hasher for reuse while preserving its
-  customization reference.
+  customization string; resetting after that string is cleared makes the next `Read` panic.
 - `ClearWriter` discards pending data from a `bufio.Writer`, detaches its destination, and makes a best effort to zero
   its backing buffer.
 - `Pos` returns the number of bytes written so far. `Write` panics before the message length would reach 2^64 bytes
@@ -111,8 +117,8 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
 
 The caller owns every input and output slice. `Write` absorbs its argument before returning and does not retain it, so
 the caller may immediately modify or reuse a message slice. `Read` writes directly into its argument and does not retain
-it. A `Hasher` retains only fixed-size hashing state and the customization reference described above; it does not retain
-message bytes or allocate a message-sized internal buffer.
+it. A `Hasher` retains only fixed-size hashing state and a pointer to its `CustomizationString`; it does not retain
+message bytes or allocate a message-sized internal buffer. The `CustomizationString` owns a defensive copy of its input.
 
 Complete leaves contiguous within a `Write` use the parallel kernels, while leaves assembled from smaller writes are
 absorbed incrementally. Applications issuing small writes can recover bulk throughput with an explicitly sized buffer;
@@ -137,12 +143,12 @@ it has been retired:
 ```go
 kt128.ClearWriter(w)
 h.Reset()
-// Retire h and every clone here.
-clear(custom)
+// Retire h and every clone here, then clear the shared customization.
+custom.Clear()
 ```
 
-As with any best-effort clearing operation in Go, `Reset` and `ClearWriter` cannot erase copies made by the compiler or
-runtime, data already written elsewhere, or values left in registers.
+As with any best-effort clearing operation in Go, `Reset`, `ClearWriter`, and `CustomizationString.Clear` cannot erase
+copies made by the compiler or runtime, data already written elsewhere, or values left in registers.
 
 ## License
 

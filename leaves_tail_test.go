@@ -74,7 +74,7 @@ func TestPartialLeafFusionSizes(t *testing.T) {
 		} {
 			msg := ptn(size)
 			for _, chunk := range []int{size, ChunkSize, ChunkSize - 1} {
-				h := New(custom)
+				h := New(NewCustomizationString(custom))
 				for off := 0; off < len(msg); off += chunk {
 					_, _ = h.Write(msg[off:min(off+chunk, len(msg))])
 				}

@@ -105,13 +105,14 @@ func TestAVX2MatchesAVX512(t *testing.T) {
 	compare := func(t *testing.T, msg, custom []byte) {
 		t.Helper()
 
-		ref := New(custom)
+		customization := NewCustomizationString(custom)
+		ref := New(customization)
 		_, _ = ref.Write(msg)
 		want := make([]byte, 64)
 		_, _ = ref.Read(want)
 
 		cpuid.HasAVX512 = false
-		h := New(custom)
+		h := New(customization)
 		_, _ = h.Write(msg)
 		got := make([]byte, 64)
 		_, _ = h.Read(got)

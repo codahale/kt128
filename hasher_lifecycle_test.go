@@ -124,7 +124,7 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 
 	var slots []*lcSlot
 	for _, c := range customs {
-		slots = append(slots, &lcSlot{h: New(c), m: &lcModel{custom: c}})
+		slots = append(slots, &lcSlot{h: New(NewCustomizationString(c)), m: &lcModel{custom: c}})
 	}
 	if len(slots) == 0 {
 		slots = append(slots, &lcSlot{h: New(nil), m: &lcModel{}})

@@ -21,15 +21,16 @@ func TestWritePartitionInvariance(t *testing.T) {
 		msg := ptn(msgLen)
 		for _, customLen := range customs {
 			custom := ptn(customLen)
+			customization := NewCustomizationString(custom)
 
 			// Reference: a single Write.
-			ref := New(custom)
+			ref := New(customization)
 			_, _ = ref.Write(msg)
 			want := make([]byte, 64)
 			_, _ = ref.Read(want)
 
 			for _, chunk := range chunks {
-				h := New(custom)
+				h := New(customization)
 				for off := 0; off < len(msg); off += chunk {
 					_, _ = h.Write(msg[off:min(off+chunk, len(msg))])
 				}

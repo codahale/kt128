@@ -157,7 +157,7 @@ var rfcVectors = []struct {
 func TestRFCVectors(t *testing.T) {
 	for _, tc := range rfcVectors {
 		t.Run(tc.name, func(t *testing.T) {
-			h := New(tc.custom)
+			h := New(NewCustomizationString(tc.custom))
 
 			if tc.msg != nil {
 				_, _ = h.Write(tc.msg)

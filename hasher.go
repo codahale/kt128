@@ -51,16 +51,15 @@ func (*noCopy) Unlock() {}
 // Hasher is an incremental KT128 instance. Its zero value is ready to use with
 // no customization string.
 //
-// [New] retains its customization slice by reference. The caller must keep that
-// slice's contents unchanged while the Hasher or any clone derived from it may
-// be used.
+// [New] retains a reference to its immutable [CustomizationString]. The same
+// CustomizationString may be shared by multiple Hashers.
 // Write and Read do not retain their input or output slices.
 //
 // A Hasher must not be copied after first use. Use [Hasher.Clone] to create an
 // independent copy. A Hasher is not safe for concurrent mutation.
 type Hasher struct {
 	noCopy  noCopy
-	c       []byte // caller-owned customization string, retained by reference
+	c       *CustomizationString
 	final   sponge // final-node sponge state
 	leaf    sponge // current partial leaf (tree mode only)
 	pos     uint64 // total bytes written via Write
@@ -68,11 +67,10 @@ type Hasher struct {
 	state   uint8  // lifecycle: stateSingle -> stateTree -> stateFinalized
 }
 
-// New returns a new Hasher using c as the KT128 customization string. It retains
-// c by reference without copying it. The caller must not modify c while the
-// returned Hasher or any Hasher cloned from it may be used, and remains
-// responsible for clearing c if necessary. Pass nil for no customization.
-func New(c []byte) *Hasher {
+// New returns a new Hasher using c as the KT128 customization string. The
+// immutable c may be shared by multiple Hashers. Pass nil for no customization.
+// A Hasher first finalized after c has been cleared will panic.
+func New(c *CustomizationString) *Hasher {
 	return &Hasher{c: c}
 }
 

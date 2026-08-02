@@ -21,14 +21,15 @@ import (
 // TestConcurrentCloneIndependence clones one tree-mode hasher into many
 // goroutines, evolves each clone with distinct data, and confirms every clone
 // matches a sequentially computed reference and that the shared source is
-// unchanged. Clone reads the source and shares its immutable customization
-// slice, so a race here means Clone is not a pure read.
+// unchanged. Clone reads the source and shares its immutable
+// CustomizationString, so a race here means Clone is not a pure read.
 func TestConcurrentCloneIndependence(t *testing.T) {
 	const workers = 8
 	custom := []byte("ctx")
+	customization := NewCustomizationString(custom)
 	baseMsg := ptn(2*ChunkSize + 100) // tree mode: Clone copies both sponge states and counters
 
-	base := New(custom)
+	base := New(customization)
 	if _, err := base.Write(baseMsg); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestConcurrentIndependentHashers(t *testing.T) {
 		go func(i int, tk task) {
 			defer wg.Done()
 			msg := ptn(tk.size)
-			h := New(tk.custom)
+			h := New(NewCustomizationString(tk.custom))
 			_, _ = h.Write(msg)
 			out := make([]byte, 100)
 			_, _ = h.Read(out)
@@ -124,8 +125,9 @@ func TestConcurrentIndependentHashers(t *testing.T) {
 // would both race here and corrupt the shared state.
 func TestConcurrentSharedReadOnly(t *testing.T) {
 	custom := []byte("ctx")
+	customization := NewCustomizationString(custom)
 	msg := ptn(3*ChunkSize + 7)
-	h := New(custom)
+	h := New(customization)
 	if _, err := h.Write(msg); err != nil {
 		t.Fatalf("Write: %v", err)
 	}

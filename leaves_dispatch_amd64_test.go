@@ -23,7 +23,7 @@ func TestWriteForceGenericFallback(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
 			msg := ptn(size)
-			h := New([]byte("generic-fallback"))
+			h := New(NewCustomizationString([]byte("generic-fallback")))
 			for off := 0; off < len(msg); off += 3333 {
 				_, _ = h.Write(msg[off:min(off+3333, len(msg))])
 			}
