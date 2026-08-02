@@ -85,9 +85,9 @@ func ptn(n int) []byte {
 	return b
 }
 
-// hash runs one iteration: absorb size bytes and read 32 bytes to finalize.
-// The Read is not part of the workload being measured but forces the final
-// node to be chained and squeezed, so the full input is actually hashed.
+// hash runs one complete KT128 operation. Timing includes construction,
+// absorption, finalization, and squeezing 32 bytes. The output bytes are not
+// included in the throughput numerator.
 func hash(msg []byte, size, chunkSize int, out *[32]byte) {
 	h := kt128.New(nil)
 	if chunkSize <= 0 {
