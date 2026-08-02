@@ -48,6 +48,27 @@ func TestLengthEncode(t *testing.T) {
 	}
 }
 
+func TestTreeLeafCount(t *testing.T) {
+	tests := []struct {
+		message uint64
+		suffix  uint64
+		want    uint64
+	}{
+		{ChunkSize, 1, 1},
+		{0, ChunkSize + 1, 1},
+		{2 * ChunkSize, 0, 1},
+		{2 * ChunkSize, 1, 2},
+		{^uint64(0), 1, 1<<51 - 1},
+		{^uint64(0), ChunkSize + 1, 1 << 51},
+	}
+
+	for _, tc := range tests {
+		if got := treeLeafCount(tc.message, tc.suffix); got != tc.want {
+			t.Errorf("treeLeafCount(%d, %d) = %d, want %d", tc.message, tc.suffix, got, tc.want)
+		}
+	}
+}
+
 // TestWritePartitionInvariance verifies that the output is independent of how the
 // message is split across Write calls, across message and customization sizes
 // that straddle chunk boundaries. This exercises incremental leaf finalization

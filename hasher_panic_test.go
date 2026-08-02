@@ -34,6 +34,25 @@ func TestPanics(t *testing.T) {
 		})
 	})
 
+	// The message position must remain exact because finalization derives the
+	// tree leaf count from it. Reject the write before absorbing any bytes.
+	t.Run("message length overflow", func(t *testing.T) {
+		h := New(nil)
+		h.state = stateTree
+		h.pos = ^uint64(0)
+		h.final.a[0] = 1
+		h.leaf.a[0] = 2
+		h.leafLen = 37
+
+		mustPanic(t, "kt128: message length exceeds 2^64-1 bytes", func() {
+			_, _ = h.Write([]byte{0xA5})
+		})
+
+		if h.pos != ^uint64(0) || h.final.a[0] != 1 || h.leaf.a[0] != 2 || h.leafLen != 37 {
+			t.Fatalf("overflowing Write modified the Hasher: %#v", h)
+		}
+	})
+
 	// Chain values must be absorbed at a lane-aligned (multiple-of-8) position.
 	t.Run("absorbCV on non-lane-aligned state", func(t *testing.T) {
 		var s, src sponge

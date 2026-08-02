@@ -60,9 +60,6 @@ func TestWriteTreeModeIncrementalLeaf(t *testing.T) {
 		_, _ = h.Write(ptn(ChunkSize + 1))
 		_, _ = h.Write(ptn(ChunkSize - 1))
 
-		if h.leafCount != 1 {
-			t.Fatalf("leaf count = %d, want 1", h.leafCount)
-		}
 		if h.leafLen != 0 || h.leaf != (sponge{}) {
 			t.Fatalf("completed leaf was not reset: len=%d state=%#v", h.leafLen, h.leaf)
 		}
@@ -87,9 +84,6 @@ func TestWriteTreeModeIncrementalLeaf(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn((availableLanes + 1) * ChunkSize))
 
-		if h.leafCount != uint64(availableLanes) {
-			t.Fatalf("leaf count = %d, want %d", h.leafCount, availableLanes)
-		}
 		if h.leafLen != 0 {
 			t.Fatalf("partial leaf bytes = %d, want 0", h.leafLen)
 		}
@@ -99,9 +93,6 @@ func TestWriteTreeModeIncrementalLeaf(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(6*ChunkSize + 37))
 
-		if h.leafCount != 5 {
-			t.Fatalf("leaf count = %d, want 5", h.leafCount)
-		}
 		if h.leafLen != 37 {
 			t.Fatalf("partial leaf bytes = %d, want 37", h.leafLen)
 		}

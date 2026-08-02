@@ -6,13 +6,12 @@ package kt128
 // independent.
 func (h *Hasher) Clone() *Hasher {
 	return &Hasher{
-		c:         h.c,
-		final:     h.final,
-		leaf:      h.leaf,
-		pos:       h.pos,
-		leafCount: h.leafCount,
-		leafLen:   h.leafLen,
-		state:     h.state,
+		c:       h.c,
+		final:   h.final,
+		leaf:    h.leaf,
+		pos:     h.pos,
+		leafLen: h.leafLen,
+		state:   h.state,
 	}
 }
 
@@ -22,7 +21,6 @@ func (h *Hasher) Reset() {
 	h.final.wipe()
 	h.leaf.wipe()
 	h.pos = 0
-	h.leafCount = 0
 	h.leafLen = 0
 	h.state = stateSingle
 }

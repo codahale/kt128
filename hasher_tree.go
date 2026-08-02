@@ -26,7 +26,6 @@ func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 	}
 	h.state = stateTree
 	h.final.absorbCVs(cvs[32 : n*32])
-	h.leafCount += uint64(n - 1)
 	return true
 }
 
@@ -39,7 +38,6 @@ func (h *Hasher) startLeafFused(trailing []byte, n int, tail []byte) {
 	processLeavesTailArch(trailing, n, nShared, &cvs, &h.leaf)
 	h.final.absorbCVs(cvs[:n*32])
 	h.leaf.absorb(tail[nShared*rate:])
-	h.leafCount += uint64(n)
 	h.leafLen = len(tail)
 }
 
@@ -47,7 +45,6 @@ func (h *Hasher) startLeafFused(trailing []byte, n int, tail []byte) {
 func (h *Hasher) finishLeaf() {
 	h.leaf.padPermute(leafDS)
 	h.final.absorbCV(&h.leaf)
-	h.leafCount++
 	h.leaf.reset()
 	h.leafLen = 0
 }

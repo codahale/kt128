@@ -2,13 +2,16 @@ package kt128
 
 // Write absorbs p as message data. It always returns len(p), nil and does not
 // retain p. Write panics after any call to [Hasher.Read], including a zero-length
-// read.
+// read, or if accepting p would bring the message length to 2^64 bytes.
 func (h *Hasher) Write(p []byte) (int, error) {
 	if h.state == stateFinalized {
 		panic("kt128: Hasher is finalized")
 	}
 
 	n := len(p)
+	if uint64(n) > ^uint64(0)-h.pos {
+		panic("kt128: message length exceeds 2^64-1 bytes")
+	}
 	if h.state == stateSingle {
 		// Fused fast path: with S_0 and at least one full leaf contiguous in
 		// p and nothing absorbed yet, process them together in one fused
@@ -172,6 +175,4 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 		s1.wipe()
 		idx++
 	}
-
-	h.leafCount += uint64(nLeaves)
 }

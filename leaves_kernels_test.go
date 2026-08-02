@@ -229,7 +229,6 @@ func BenchmarkLeafBatchRemainder(b *testing.B) {
 			b.SetBytes(int64(n * ChunkSize))
 			for b.Loop() {
 				h.final.reset()
-				h.leafCount = 0
 				h.processLeafBatch(input, n)
 			}
 		})

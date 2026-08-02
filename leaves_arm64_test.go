@@ -66,9 +66,6 @@ func TestARM64DirectWriteUsesBatch5(t *testing.T) {
 	_, _ = h.Write(msg[:2*ChunkSize])
 	_, _ = h.Write(msg[2*ChunkSize:])
 
-	if h.leafCount != 6 {
-		t.Fatalf("leaf count = %d, want 6", h.leafCount)
-	}
 	if h.leafLen != 0 {
 		t.Fatalf("partial leaf bytes = %d, want 0", h.leafLen)
 	}

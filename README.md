@@ -103,8 +103,8 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
   customization reference.
 - `ClearWriter` discards pending data from a `bufio.Writer`, detaches its destination, and makes a best effort to zero
   its backing buffer.
-- `Pos` returns the number of bytes written so far. It is exact below 2^64 bytes and wraps modulo 2^64 for longer
-  streams without an intervening `Reset`.
+- `Pos` returns the number of bytes written so far. `Write` panics before the message length would reach 2^64 bytes
+  without an intervening `Reset`.
 - `Hasher.BlockSize()` reports the 168-byte TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.
 
 ## Ownership and Buffering

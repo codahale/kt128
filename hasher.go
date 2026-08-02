@@ -59,14 +59,13 @@ func (*noCopy) Unlock() {}
 // A Hasher must not be copied after first use. Use [Hasher.Clone] to create an
 // independent copy. A Hasher is not safe for concurrent mutation.
 type Hasher struct {
-	noCopy    noCopy
-	c         []byte // caller-owned customization string, retained by reference
-	final     sponge // final-node sponge state
-	leaf      sponge // current partial leaf (tree mode only)
-	pos       uint64 // total bytes written via Write
-	leafCount uint64 // total leaf CVs written to final so far
-	leafLen   int    // bytes absorbed into leaf; 0 = no partial leaf
-	state     uint8  // lifecycle: stateSingle -> stateTree -> stateFinalized
+	noCopy  noCopy
+	c       []byte // caller-owned customization string, retained by reference
+	final   sponge // final-node sponge state
+	leaf    sponge // current partial leaf (tree mode only)
+	pos     uint64 // total bytes written via Write
+	leafLen int    // bytes absorbed into leaf; 0 = no partial leaf
+	state   uint8  // lifecycle: stateSingle -> stateTree -> stateFinalized
 }
 
 // New returns a new Hasher using c as the KT128 customization string. It retains
@@ -85,8 +84,8 @@ func (h *Hasher) BlockSize() int {
 }
 
 // Pos returns the total number of message bytes accepted by [Hasher.Write]
-// since construction or the last call to [Hasher.Reset]. It is exact below
-// 2^64 bytes and wraps modulo 2^64 for longer streams.
+// since construction or the last call to [Hasher.Reset]. Write panics before
+// this count would reach 2^64 bytes.
 func (h *Hasher) Pos() uint64 {
 	return h.pos
 }

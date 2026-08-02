@@ -51,9 +51,6 @@ func TestWriteForceAVX2DirectFlush(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(8 * ChunkSize)) // S_0+3 leaves fused, 4 leaves in place
 
-		if h.leafCount != 7 {
-			t.Fatalf("leaf count = %d, want 7", h.leafCount)
-		}
 		if h.leafLen != 0 {
 			t.Fatalf("partial leaf bytes = %d, want 0", h.leafLen)
 		}
@@ -64,9 +61,6 @@ func TestWriteForceAVX2DirectFlush(t *testing.T) {
 		// S_0+3 leaves fuse; the remaining complete leaves process in place.
 		_, _ = h.Write(ptn(11*ChunkSize + 37))
 
-		if h.leafCount != 10 {
-			t.Fatalf("leaf count = %d, want 10", h.leafCount)
-		}
 		if h.leafLen != 37 {
 			t.Fatalf("partial leaf bytes = %d, want 37", h.leafLen)
 		}
@@ -89,9 +83,6 @@ func TestWriteS0TailFusion(t *testing.T) {
 
 		if h.leafLen != 4096 {
 			t.Fatalf("partial leaf bytes = %d, want 4096", h.leafLen)
-		}
-		if h.leafCount != 2 {
-			t.Fatalf("leaf count = %d, want 2", h.leafCount)
 		}
 	})
 
@@ -157,9 +148,6 @@ func TestWriteS0TailFusionAVX2(t *testing.T) {
 
 		if h.leafLen != 4096 {
 			t.Fatalf("partial leaf bytes = %d, want 4096", h.leafLen)
-		}
-		if h.leafCount != 1 {
-			t.Fatalf("leaf count = %d, want 1", h.leafCount)
 		}
 	})
 

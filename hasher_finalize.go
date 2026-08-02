@@ -30,6 +30,7 @@ func (h *Hasher) finalize() {
 // into the logical KT128 input. Message bytes up to one chunk are already in
 // h.final; tree-mode data continues through the incremental leaf state.
 func (h *Hasher) absorbCustomization(custom, encoded []byte) {
+	suffixLen := uint64(len(custom)) + uint64(len(encoded))
 	if h.state == stateSingle {
 		room := ChunkSize - int(h.pos)
 		if len(custom) <= room && len(encoded) <= room-len(custom) {
@@ -63,10 +64,24 @@ func (h *Hasher) absorbCustomization(custom, encoded []byte) {
 		h.finishLeaf()
 	}
 
-	// Terminator: LengthEncode(leafCount) || 0xFF || 0xFF.
+	// Terminator: LengthEncode(number of leaves) || 0xFF || 0xFF.
 	var leBuf [9]byte
-	h.final.absorb(lengthEncode(leBuf[:0], h.leafCount))
+	h.final.absorb(lengthEncode(leBuf[:0], treeLeafCount(h.pos, suffixLen)))
 	h.final.absorb(treeTerminator[:])
+}
+
+// treeLeafCount returns the number of chunks after S_0 in a tree whose logical
+// input is messageLen+suffixLen bytes. The caller ensures that total exceeds
+// ChunkSize. Dividing the two segments separately avoids uint64 overflow when
+// the suffix carries the combined length across the 2^64-byte boundary.
+func treeLeafCount(messageLen, suffixLen uint64) uint64 {
+	leaves := messageLen/ChunkSize + suffixLen/ChunkSize
+	remainder := messageLen%ChunkSize + suffixLen%ChunkSize
+	leaves += remainder / ChunkSize
+	if remainder%ChunkSize == 0 {
+		leaves--
+	}
+	return leaves
 }
 
 func lengthEncode(b []byte, value uint64) []byte {
