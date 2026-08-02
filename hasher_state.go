@@ -1,11 +1,12 @@
 package kt128
 
 // Clone returns an independent copy of h at its current absorption or squeeze
-// position. The clone shares h's immutable CustomizationString. All other state
-// is independent.
+// position, including a copy of its customization string. Clone panics if h has
+// been cleared.
 func (h *Hasher) Clone() *Hasher {
+	h.checkNotCleared()
 	return &Hasher{
-		c:       h.c,
+		c:       append([]byte(nil), h.c...),
 		final:   h.final,
 		leaf:    h.leaf,
 		pos:     h.pos,
@@ -15,9 +16,10 @@ func (h *Hasher) Clone() *Hasher {
 }
 
 // Reset makes a best effort to zero h's message-dependent state and resets it
-// for reuse with the same CustomizationString passed to [New]. If that
-// CustomizationString has been cleared, the next Read will panic.
+// for reuse with the same customization string passed to [New]. Reset panics
+// if h has been cleared.
 func (h *Hasher) Reset() {
+	h.checkNotCleared()
 	h.final.wipe()
 	h.leaf.wipe()
 	h.pos = 0

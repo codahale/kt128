@@ -105,7 +105,7 @@ func TestAVX2MatchesAVX512(t *testing.T) {
 	compare := func(t *testing.T, msg, custom []byte) {
 		t.Helper()
 
-		customization := NewCustomizationString(custom)
+		customization := bytes.Clone(custom)
 		ref := New(customization)
 		_, _ = ref.Write(msg)
 		want := make([]byte, 64)

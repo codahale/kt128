@@ -40,6 +40,7 @@ const (
 	stateSingle    uint8 = 0 // absorbing, single-node (< 1 chunk seen)
 	stateTree      uint8 = 1 // absorbing, tree mode (S_0 flushed)
 	stateFinalized uint8 = 2 // finalized and squeezable
+	stateCleared   uint8 = 3 // permanently invalidated
 )
 
 // noCopy is recognized by go vet's copylocks analyzer.
@@ -51,27 +52,27 @@ func (*noCopy) Unlock() {}
 // Hasher is an incremental KT128 instance. Its zero value is ready to use with
 // no customization string.
 //
-// [New] retains a reference to its immutable [CustomizationString]. The same
-// CustomizationString may be shared by multiple Hashers.
-// Write and Read do not retain their input or output slices.
+// [New] copies its customization string. Write and Read do not retain their
+// input or output slices.
 //
 // A Hasher must not be copied after first use. Use [Hasher.Clone] to create an
-// independent copy. A Hasher is not safe for concurrent mutation.
+// independent copy. A Hasher is not safe for concurrent mutation. [Hasher.Clear]
+// permanently invalidates a Hasher.
 type Hasher struct {
 	noCopy  noCopy
-	c       *CustomizationString
+	c       []byte
 	final   sponge // final-node sponge state
 	leaf    sponge // current partial leaf (tree mode only)
 	pos     uint64 // total bytes written via Write
 	leafLen int    // bytes absorbed into leaf; 0 = no partial leaf
-	state   uint8  // lifecycle: stateSingle -> stateTree -> stateFinalized
+	state   uint8  // absorbing, finalized, or cleared
 }
 
-// New returns a new Hasher using c as the KT128 customization string. The
-// immutable c may be shared by multiple Hashers. Pass nil for no customization.
-// A Hasher first finalized after c has been cleared will panic.
-func New(c *CustomizationString) *Hasher {
-	return &Hasher{c: c}
+// New returns a new Hasher using c as the KT128 customization string. New
+// copies c; the caller may modify or clear c immediately after this function
+// returns. Pass nil for no customization.
+func New(c []byte) *Hasher {
+	return &Hasher{c: append([]byte(nil), c...)}
 }
 
 // BlockSize returns the 168-byte TurboSHAKE128 sponge rate. Write accepts inputs
@@ -83,9 +84,16 @@ func (h *Hasher) BlockSize() int {
 
 // Pos returns the total number of message bytes accepted by [Hasher.Write]
 // since construction or the last call to [Hasher.Reset]. Write panics before
-// this count would reach 2^64 bytes.
+// this count would reach 2^64 bytes. Pos panics if h has been cleared.
 func (h *Hasher) Pos() uint64 {
+	h.checkNotCleared()
 	return h.pos
+}
+
+func (h *Hasher) checkNotCleared() {
+	if h.state == stateCleared {
+		panic("kt128: Hasher is cleared")
+	}
 }
 
 var _ hash.XOF = (*Hasher)(nil)

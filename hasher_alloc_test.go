@@ -66,10 +66,9 @@ func TestReadAllocationsDoNotScale(t *testing.T) {
 func TestCustomizationFinalizationDoesNotAllocate(t *testing.T) {
 	var out [32]byte
 	for _, size := range []int{56, 128, ChunkSize + 7} {
-		custom := ptn(size)
-		customization := NewCustomizationString(custom)
+		h := New(ptn(size))
 		allocs := testing.AllocsPerRun(20, func() {
-			h := New(customization)
+			h.Reset()
 			_, _ = h.Read(out[:])
 		})
 		if allocs != 0 {

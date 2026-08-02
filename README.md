@@ -11,7 +11,7 @@ arbitrary-length output, customization strings, and optimized tree hashing for l
 - Switches to tree mode once the input exceeds one 8192-byte chunk.
 - Uses optimized assembly on `amd64` and `arm64`.
 - Falls back to pure Go on other targets, or with `-tags purego`.
-- Exposes `Clone`, `Reset`, `ClearWriter`, and `Pos` helpers.
+- Exposes `Clone`, `Reset`, `Clear`, `ClearWriter`, and `Pos` helpers.
 
 ## Requirements
 
@@ -60,24 +60,24 @@ passwords and other low-entropy secrets.
 
 ## Customization
 
-Construct an immutable customization string and pass it to `New`:
+Pass the customization string to `New`:
 
 ```go
-custom := kt128.NewCustomizationString([]byte("example-domain"))
-defer custom.Clear()
-
+custom := []byte("example-domain")
 h := kt128.New(custom)
+clear(custom)
+defer h.Clear()
+
 _, _ = h.Write([]byte("hello, world"))
 
 out := make([]byte, 64)
 _, _ = h.Read(out)
 ```
 
-`NewCustomizationString` copies its input, so the caller may immediately modify or clear the original slice. The
-resulting `CustomizationString` is immutable and may be shared by multiple hashers and their clones. `Clear` overwrites
-the owned storage and permanently invalidates the customization string. A hasher first finalized after its customization
-string has been cleared will panic; a hasher finalized before `Clear` continues squeezing normally. Call `Clear` only
-after every absorbing hasher and clone has been finalized or retired; it does not synchronize with finalization.
+`New` copies its customization input, so the caller may immediately modify or clear the original slice. `Clone` copies
+the customization again, making each Hasher independently owned. `Hasher.Clear` overwrites the owned customization and
+hashing state, then permanently invalidates that Hasher; it does not affect clones. All subsequent exported methods
+except `Clear` and `BlockSize` panic. `Clear` is idempotent and does not synchronize with other operations on the Hasher.
 
 ## Performance Notes
 
@@ -98,15 +98,14 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
 
 ## API Notes
 
-- `NewCustomizationString(c)` defensively copies `c` into an immutable, shareable customization string.
-- `CustomizationString.Clear` wipes its owned storage and permanently invalidates the customization string. It must not
-  run concurrently with finalization or another call to `Clear`.
-- `New(c)` creates a new hasher sharing `c` (pass nil for none).
+- `New(c)` creates a new hasher with a defensive copy of `c` (pass nil for none).
 - `Write` absorbs message bytes without retaining the input slice.
 - `Read(dst)` squeezes output into `dst`.
-- `Clone` copies the current hashing state but shares its immutable customization string.
+- `Clone` copies the current hashing state and customization string.
 - `Reset` makes a best effort to zero message-dependent state and resets the hasher for reuse while preserving its
-  customization string; resetting after that string is cleared makes the next `Read` panic.
+  customization string.
+- `Clear` makes a best effort to zero hashing state and customization storage, then permanently invalidates the Hasher.
+  It is idempotent; all subsequent exported methods except `Clear` and `BlockSize` panic.
 - `ClearWriter` discards pending data from a `bufio.Writer`, detaches its destination, and makes a best effort to zero
   its backing buffer.
 - `RecommendedWriteBufferSize` reports a runtime dispatch-specific buffer size for coalescing small writes into
@@ -119,8 +118,8 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
 
 The caller owns every input and output slice. `Write` absorbs its argument before returning and does not retain it, so
 the caller may immediately modify or reuse a message slice. `Read` writes directly into its argument and does not retain
-it. A `Hasher` retains only fixed-size hashing state and a pointer to its `CustomizationString`; it does not retain
-message bytes or allocate a message-sized internal buffer. The `CustomizationString` owns a defensive copy of its input.
+it. A `Hasher` retains fixed-size hashing state and an owned copy of its customization string; it does not retain
+message bytes or allocate a message-sized internal buffer.
 
 Complete leaves contiguous within a `Write` use the parallel kernels, while leaves assembled from smaller writes are
 absorbed incrementally. Applications issuing small writes can recover bulk throughput with an explicitly sized buffer;
@@ -142,17 +141,15 @@ The caller owns the writer, its destination, and the sequencing and error handli
 
 `ClearWriter` deliberately discards rather than flushes pending bytes, detaches the destination by resetting the writer
 to `io.Discard`, and makes a best effort to wipe the writer's backing array. It does not clear bytes already flushed to
-the former destination. After producing the final output, clear caller-owned storage only after every object retaining
-it has been retired:
+the former destination. Clear each Hasher and clone independently after producing their final output:
 
 ```go
 kt128.ClearWriter(w)
-h.Reset()
-// Retire h and every clone here, then clear the shared customization.
-custom.Clear()
+h.Clear()
+// Call Clear on each clone as it is retired.
 ```
 
-As with any best-effort clearing operation in Go, `Reset`, `ClearWriter`, and `CustomizationString.Clear` cannot erase
+As with any best-effort clearing operation in Go, `Reset`, `Hasher.Clear`, and `ClearWriter` cannot erase
 copies made by the compiler or runtime, data already written elsewhere, or values left in registers.
 
 ## License

@@ -110,24 +110,11 @@ func TestReset(t *testing.T) {
 	}
 }
 
-func TestCustomizationStringShared(t *testing.T) {
-	custom := NewCustomizationString(ptn(41))
-	h := New(custom)
-	clone := h.Clone()
-
-	if h.c != custom {
-		t.Fatal("New did not retain the customization string")
-	}
-	if clone.c != custom {
-		t.Fatal("Clone did not share the customization string")
-	}
-}
-
 // TestResetPreservesCustomization verifies that Reset keeps the customization
 // string passed to New, so a reused hasher matches a fresh one constructed with
 // the same customization.
 func TestResetPreservesCustomization(t *testing.T) {
-	custom := NewCustomizationString(ptn(41))
+	custom := ptn(41)
 
 	h := New(custom)
 	_, _ = h.Write(ptn(100))

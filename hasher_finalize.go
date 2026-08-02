@@ -4,8 +4,10 @@ import "math/bits"
 
 // Read fills p with output from the XOF and returns len(p), nil. The first call,
 // including a zero-length call, finalizes the message; subsequent calls continue
-// squeezing the same output stream. Read never returns io.EOF.
+// squeezing the same output stream. Read never returns io.EOF and panics if h
+// has been cleared.
 func (h *Hasher) Read(p []byte) (int, error) {
+	h.checkNotCleared()
 	if h.state != stateFinalized {
 		h.finalize()
 		h.state = stateFinalized
@@ -17,15 +19,7 @@ func (h *Hasher) Read(p []byte) (int, error) {
 // finalize absorbs the customization string and its length encoding as separate
 // segments, then applies the final pad-and-permute.
 func (h *Hasher) finalize() {
-	if h.c == nil {
-		h.finalizeWithCustomization(nil)
-		return
-	}
-
-	if h.c.cleared {
-		panic("kt128: CustomizationString is cleared")
-	}
-	h.finalizeWithCustomization(h.c.data)
+	h.finalizeWithCustomization(h.c)
 }
 
 func (h *Hasher) finalizeWithCustomization(custom []byte) {

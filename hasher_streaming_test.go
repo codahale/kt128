@@ -21,7 +21,7 @@ func TestWritePartitionInvariance(t *testing.T) {
 		msg := ptn(msgLen)
 		for _, customLen := range customs {
 			custom := ptn(customLen)
-			customization := NewCustomizationString(custom)
+			customization := bytes.Clone(custom)
 
 			// Reference: a single Write.
 			ref := New(customization)

@@ -2,8 +2,10 @@ package kt128
 
 // Write absorbs p as message data. It always returns len(p), nil and does not
 // retain p. Write panics after any call to [Hasher.Read], including a zero-length
-// read, or if accepting p would bring the message length to 2^64 bytes.
+// read, if h has been cleared, or if accepting p would bring the message length
+// to 2^64 bytes.
 func (h *Hasher) Write(p []byte) (int, error) {
+	h.checkNotCleared()
 	if h.state == stateFinalized {
 		panic("kt128: Hasher is finalized")
 	}
