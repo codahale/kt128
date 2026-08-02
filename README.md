@@ -25,6 +25,15 @@ go get github.com/codahale/kt128
 
 ## Basic Usage
 
+For the common 32-byte output:
+
+```go
+sum := kt128.Sum256([]byte("hello, world"), nil)
+fmt.Printf("%x\n", sum)
+```
+
+For incremental input or arbitrary-length output:
+
 ```go
 package main
 
@@ -98,6 +107,7 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
 
 ## API Notes
 
+- `Sum256(message, customization)` returns a 32-byte hash without retaining either input slice.
 - `New(c)` creates a new hasher with a defensive copy of `c` (pass nil for none).
 - `Write` absorbs message bytes without retaining the input slice.
 - `Read(dst)` squeezes output into `dst`.
