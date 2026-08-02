@@ -266,42 +266,43 @@ func TestAssemblyOutputBounds(t *testing.T) {
 func runLeafKernelOutputBounds(t *testing.T) {
 	t.Helper()
 
-	if hasLeafX8 {
+	var probe [256]byte
+	hasX8 := tryProcessLeavesX8Arch(make([]byte, 8*ChunkSize), &probe)
+	if hasX8 {
 		input := make([]byte, 8*ChunkSize)
-		checkCVOutput(t, "processLeavesArch(x8)", 256, func(cvs *[256]byte) {
-			processLeavesArch(input, cvs)
+		checkCVOutput(t, "tryProcessLeavesX8Arch(x8)", 256, func(cvs *[256]byte) {
+			tryProcessLeavesX8Arch(input, cvs)
 		})
 	}
 
-	var probe [256]byte
-	hasPair := processLeavesPairArch(make([]byte, 2*ChunkSize), &probe)
-	hasRun := processLeavesRunArch(make([]byte, 2*ChunkSize), 2, &probe)
-	hasBatch5 := processLeavesBatch5Arch(make([]byte, 5*ChunkSize), &probe)
-	hasTriple := processLeavesTripleArch(make([]byte, 3*ChunkSize), &probe)
+	hasPair := tryProcessLeavesPairArch(make([]byte, 2*ChunkSize), &probe)
+	hasRun := tryProcessLeavesRunArch(make([]byte, 2*ChunkSize), 2, &probe)
+	hasBatch5 := tryProcessLeavesBatch5Arch(make([]byte, 5*ChunkSize), &probe)
+	hasTriple := tryProcessLeavesTripleArch(make([]byte, 3*ChunkSize), &probe)
 
 	if hasBatch5 {
 		input := make([]byte, 5*ChunkSize)
 		checkCVOutput(t, "processLeavesBatch5(x5)", 5*32, func(cvs *[256]byte) {
-			processLeavesBatch5Arch(input, cvs)
+			tryProcessLeavesBatch5Arch(input, cvs)
 		})
 	}
 	if hasTriple {
 		input := make([]byte, 3*ChunkSize)
 		checkCVOutput(t, "processLeavesTriple(x3)", 3*32, func(cvs *[256]byte) {
-			processLeavesTripleArch(input, cvs)
+			tryProcessLeavesTripleArch(input, cvs)
 		})
 	}
 	if hasPair {
 		input := make([]byte, 2*ChunkSize)
 		checkCVOutput(t, "processLeavesPair(x2)", 2*32, func(cvs *[256]byte) {
-			processLeavesPairArch(input, cvs)
+			tryProcessLeavesPairArch(input, cvs)
 		})
 	}
 	if hasRun {
 		for n := 2; n <= 7; n++ {
 			input := make([]byte, n*ChunkSize)
 			checkCVOutput(t, fmt.Sprintf("processLeavesRun(n=%d)", n), -1, func(cvs *[256]byte) {
-				processLeavesRunArch(input, n, cvs)
+				tryProcessLeavesRunArch(input, n, cvs)
 			})
 		}
 	}
@@ -310,17 +311,17 @@ func runLeafKernelOutputBounds(t *testing.T) {
 		input := make([]byte, n*ChunkSize)
 		var probeFinal sponge
 		var probeCVs [256]byte
-		if !processS0LeavesArch(input, n, &probeFinal, &probeCVs) {
+		if !tryProcessS0LeavesArch(input, n, &probeFinal, &probeCVs) {
 			continue
 		}
 		name := fmt.Sprintf("processS0Leaves(n=%d)", n)
 		checkCVOutput(t, name+"/cvs", -1, func(cvs *[256]byte) {
 			var final sponge
-			processS0LeavesArch(input, n, &final, cvs)
+			tryProcessS0LeavesArch(input, n, &final, cvs)
 		})
 		checkSpongeOutput(t, name+"/final", func(final *sponge) {
 			var cvs [256]byte
-			processS0LeavesArch(input, n, final, &cvs)
+			tryProcessS0LeavesArch(input, n, final, &cvs)
 		})
 	}
 
@@ -329,23 +330,23 @@ func runLeafKernelOutputBounds(t *testing.T) {
 			input := make([]byte, n*ChunkSize+nShared*rate)
 			var probeFinal, probePending sponge
 			var probeCVs [256]byte
-			if !processS0LeavesTailArch(input, n, nShared, &probeFinal, &probePending, &probeCVs) {
+			if !tryProcessS0LeavesTailArch(input, n, nShared, &probeFinal, &probePending, &probeCVs) {
 				continue
 			}
 			name := fmt.Sprintf("processS0LeavesTail(n=%d,nShared=%d)", n, nShared)
 			checkCVOutput(t, name+"/cvs", -1, func(cvs *[256]byte) {
 				var final, pending sponge
-				processS0LeavesTailArch(input, n, nShared, &final, &pending, cvs)
+				tryProcessS0LeavesTailArch(input, n, nShared, &final, &pending, cvs)
 			})
 			checkSpongeOutput(t, name+"/final", func(final *sponge) {
 				var pending sponge
 				var cvs [256]byte
-				processS0LeavesTailArch(input, n, nShared, final, &pending, &cvs)
+				tryProcessS0LeavesTailArch(input, n, nShared, final, &pending, &cvs)
 			})
 			checkSpongeOutput(t, name+"/pending", func(pending *sponge) {
 				var final sponge
 				var cvs [256]byte
-				processS0LeavesTailArch(input, n, nShared, &final, pending, &cvs)
+				tryProcessS0LeavesTailArch(input, n, nShared, &final, pending, &cvs)
 			})
 		}
 	}
@@ -355,17 +356,17 @@ func runLeafKernelOutputBounds(t *testing.T) {
 			input := make([]byte, n*ChunkSize+nShared*rate)
 			var probeCVs [256]byte
 			var probePartial sponge
-			if !processLeavesTailArch(input, n, nShared, &probeCVs, &probePartial) {
+			if !tryProcessLeavesTailArch(input, n, nShared, &probeCVs, &probePartial) {
 				continue
 			}
 			name := fmt.Sprintf("processLeavesTail(n=%d,nShared=%d)", n, nShared)
 			checkCVOutput(t, name+"/cvs", -1, func(cvs *[256]byte) {
 				var partial sponge
-				processLeavesTailArch(input, n, nShared, cvs, &partial)
+				tryProcessLeavesTailArch(input, n, nShared, cvs, &partial)
 			})
 			checkSpongeOutput(t, name+"/partial", func(partial *sponge) {
 				var cvs [256]byte
-				processLeavesTailArch(input, n, nShared, &cvs, partial)
+				tryProcessLeavesTailArch(input, n, nShared, &cvs, partial)
 			})
 		}
 	}
@@ -403,38 +404,38 @@ func runLeafKernels(t *testing.T) {
 	var cvs [256]byte
 
 	// x8 fused kernel: reads exactly 8 contiguous chunks.
-	if hasLeafX8 {
-		checkGuardedInput(t, "processLeavesArch(x8)", 8*ChunkSize, func(buf []byte) {
-			processLeavesArch(buf, &cvs)
+	if tryProcessLeavesX8Arch(make([]byte, 8*ChunkSize), &cvs) {
+		checkGuardedInput(t, "tryProcessLeavesX8Arch(x8)", 8*ChunkSize, func(buf []byte) {
+			tryProcessLeavesX8Arch(buf, &cvs)
 		})
 	}
 
 	// Probe kernel availability with throwaway heap buffers so the guarded run
 	// below is a single, clean call.
 	var probe [256]byte
-	hasPair := processLeavesPairArch(make([]byte, 2*ChunkSize), &probe)
-	hasRun := processLeavesRunArch(make([]byte, 2*ChunkSize), 2, &probe)
-	hasBatch5 := processLeavesBatch5Arch(make([]byte, 5*ChunkSize), &probe)
-	hasTriple := processLeavesTripleArch(make([]byte, 3*ChunkSize), &probe)
+	hasPair := tryProcessLeavesPairArch(make([]byte, 2*ChunkSize), &probe)
+	hasRun := tryProcessLeavesRunArch(make([]byte, 2*ChunkSize), 2, &probe)
+	hasBatch5 := tryProcessLeavesBatch5Arch(make([]byte, 5*ChunkSize), &probe)
+	hasTriple := tryProcessLeavesTripleArch(make([]byte, 3*ChunkSize), &probe)
 
 	// x5 hybrid kernel (arm64): the scalar walker must end exactly at the
 	// buffer end and the NEON walkers within it.
 	if hasBatch5 {
 		checkGuardedInput(t, "processLeavesBatch5(x5)", 5*ChunkSize, func(buf []byte) {
-			processLeavesBatch5Arch(buf, &cvs)
+			tryProcessLeavesBatch5Arch(buf, &cvs)
 		})
 	}
 
 	if hasTriple {
 		checkGuardedInput(t, "processLeavesTriple(x3)", 3*ChunkSize, func(buf []byte) {
-			processLeavesTripleArch(buf, &cvs)
+			tryProcessLeavesTripleArch(buf, &cvs)
 		})
 	}
 
 	// x2 pair kernel (arm64): reads exactly 2 contiguous chunks.
 	if hasPair {
 		checkGuardedInput(t, "processLeavesPair(x2)", 2*ChunkSize, func(buf []byte) {
-			processLeavesPairArch(buf, &cvs)
+			tryProcessLeavesPairArch(buf, &cvs)
 		})
 	}
 
@@ -443,13 +444,13 @@ func runLeafKernels(t *testing.T) {
 	for n := 2; n <= availableLanes; n++ {
 		var probeFinal sponge
 		var probeCVs [256]byte
-		if !processS0LeavesArch(make([]byte, n*ChunkSize), n, &probeFinal, &probeCVs) {
+		if !tryProcessS0LeavesArch(make([]byte, n*ChunkSize), n, &probeFinal, &probeCVs) {
 			continue
 		}
 		checkGuardedInput(t, fmt.Sprintf("processS0Leaves(n=%d)", n), n*ChunkSize, func(buf []byte) {
 			var final sponge
 			var cvs [256]byte
-			processS0LeavesArch(buf, n, &final, &cvs)
+			tryProcessS0LeavesArch(buf, n, &final, &cvs)
 		})
 	}
 
@@ -461,14 +462,14 @@ func runLeafKernels(t *testing.T) {
 	for n := 2; n <= 7; n++ {
 		var probeFinal, probePending sponge
 		var probeCVs [256]byte
-		if !processS0LeavesTailArch(make([]byte, n*ChunkSize), n, 0, &probeFinal, &probePending, &probeCVs) {
+		if !tryProcessS0LeavesTailArch(make([]byte, n*ChunkSize), n, 0, &probeFinal, &probePending, &probeCVs) {
 			continue
 		}
 		for nShared := 0; nShared <= 48; nShared++ {
 			checkGuardedInput(t, fmt.Sprintf("processS0LeavesTail(n=%d,nShared=%d)", n, nShared), n*ChunkSize+nShared*rate, func(buf []byte) {
 				var final, pending sponge
 				var cvsOut [256]byte
-				processS0LeavesTailArch(buf, n, nShared, &final, &pending, &cvsOut)
+				tryProcessS0LeavesTailArch(buf, n, nShared, &final, &pending, &cvsOut)
 			})
 		}
 	}
@@ -478,7 +479,7 @@ func runLeafKernels(t *testing.T) {
 	if hasRun {
 		for n := 2; n <= 7; n++ {
 			checkGuardedInput(t, fmt.Sprintf("processLeavesRun(n=%d)", n), n*ChunkSize, func(buf []byte) {
-				processLeavesRunArch(buf, n, &cvs)
+				tryProcessLeavesRunArch(buf, n, &cvs)
 			})
 		}
 	}
@@ -491,14 +492,14 @@ func runLeafKernels(t *testing.T) {
 	for n := 1; n <= 7; n++ {
 		var probeCVs [256]byte
 		var probeSponge sponge
-		if !processLeavesTailArch(make([]byte, n*ChunkSize), n, 0, &probeCVs, &probeSponge) {
+		if !tryProcessLeavesTailArch(make([]byte, n*ChunkSize), n, 0, &probeCVs, &probeSponge) {
 			continue
 		}
 		for nShared := 0; nShared <= 48; nShared++ {
 			checkGuardedInput(t, fmt.Sprintf("processLeavesTail(n=%d,nShared=%d)", n, nShared), n*ChunkSize+nShared*rate, func(buf []byte) {
 				var cvsOut [256]byte
 				var s sponge
-				processLeavesTailArch(buf, n, nShared, &cvsOut, &s)
+				tryProcessLeavesTailArch(buf, n, nShared, &cvsOut, &s)
 			})
 		}
 	}

@@ -12,13 +12,11 @@ import (
 
 func TestWriteForceGenericFallback(t *testing.T) {
 	savedSHA3 := cpuid.HasSHA3
-	savedHasLeafBatch5 := hasLeafBatch5
 	defer func() {
 		cpuid.HasSHA3 = savedSHA3
-		hasLeafBatch5 = savedHasLeafBatch5
 	}()
 	cpuid.HasSHA3 = false
-	hasLeafBatch5 = false
+	testUnavailableKernelWrappers(t)
 
 	for _, size := range []int{
 		0, ChunkSize, 2 * ChunkSize, 9*ChunkSize + 137, 1024 * 1024,
@@ -87,7 +85,7 @@ func BenchmarkARM64TripleVsPairScalar(b *testing.B) {
 	b.Run("hybrid", func(b *testing.B) {
 		b.SetBytes(3 * ChunkSize)
 		for b.Loop() {
-			processLeavesTripleArch(input, &cvs)
+			tryProcessLeavesTripleArch(input, &cvs)
 		}
 	})
 

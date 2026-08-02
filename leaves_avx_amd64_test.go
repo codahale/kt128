@@ -28,7 +28,7 @@ func TestProcessLeavesRunAVX2(t *testing.T) {
 			input[i] = byte(i*53 + i>>9)
 		}
 		var got [256]byte
-		if !processLeavesRunArch(input, n, &got) {
+		if !tryProcessLeavesRunArch(input, n, &got) {
 			t.Fatalf("AVX2 run kernel reported unavailable")
 		}
 		checkLeafCVs(t, fmt.Sprintf("n=%d: ", n), input, got[:], n)

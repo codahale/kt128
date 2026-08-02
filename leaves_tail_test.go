@@ -20,7 +20,7 @@ func TestProcessLeavesTail(t *testing.T) {
 			nShared := headLen / rate
 			var cvs [256]byte
 			var s sponge
-			if !processLeavesTailArch(input, n, nShared, &cvs, &s) {
+			if !tryProcessLeavesTailArch(input, n, nShared, &cvs, &s) {
 				continue
 			}
 			ran = true
@@ -146,7 +146,7 @@ func testProcessS0LeavesTail(t *testing.T) {
 
 			var final, pending sponge
 			var cvs [256]byte
-			if !processS0LeavesTailArch(input, n, nShared, &final, &pending, &cvs) {
+			if !tryProcessS0LeavesTailArch(input, n, nShared, &final, &pending, &cvs) {
 				continue
 			}
 			ran = true

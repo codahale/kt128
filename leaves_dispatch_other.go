@@ -10,12 +10,6 @@ package kt128
 
 const availableLanes = 1
 
-// hasLeafX8 reports that the scalar fallback has no batch kernel; the
-// generic 8-wide path is eight serial sponges, no faster than the x1 loop.
-const hasLeafX8 = false
-
-const hasLeafBatch5 = false
-
 // pairRemainderMax bounds the leaf counts the pair loop may drain; there is
 // no pair kernel on this platform.
 const pairRemainderMax = 0
@@ -26,20 +20,27 @@ func fuseTailChunks(_, _ int) int { return 0 }
 
 // ─── Kernel wrappers ───
 
-func processLeavesArch(_ []byte, _ *[256]byte) bool { return false }
+// Every try wrapper returns false without modifying its output arguments; the
+// scalar fallback has no architecture-specific kernels.
 
-func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
+func tryProcessLeavesX8Arch(_ []byte, _ *[256]byte) bool { return false }
 
-func processLeavesTripleArch(_ []byte, _ *[256]byte) bool { return false }
+func tryProcessLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
 
-func processLeavesPairArch(_ []byte, _ *[256]byte) bool { return false }
+func tryProcessLeavesTripleArch(_ []byte, _ *[256]byte) bool { return false }
 
-func processLeavesRunArch(_ []byte, _ int, _ *[256]byte) bool { return false }
+func tryProcessLeavesPairArch(_ []byte, _ *[256]byte) bool { return false }
 
-func processS0LeavesArch(_ []byte, _ int, _ *sponge, _ *[256]byte) bool { return false }
+func tryProcessLeavesRunArch(_ []byte, _ int, _ *[256]byte) bool { return false }
 
-func processS0LeavesTailArch(_ []byte, _, _ int, _, _ *sponge, _ *[256]byte) bool { return false }
+func tryProcessS0LeavesArch(_ []byte, _ int, _ *sponge, _ *[256]byte) bool { return false }
+
+func tryProcessS0LeavesTailArch(_ []byte, _, _ int, _, _ *sponge, _ *[256]byte) bool {
+	return false
+}
 
 func fuseS0TailBlocks(_, _ int) int { return 0 }
 
-func processLeavesTailArch(_ []byte, _, _ int, _ *[256]byte, _ *sponge) bool { return false }
+func tryProcessLeavesTailArch(_ []byte, _, _ int, _ *[256]byte, _ *sponge) bool {
+	return false
+}

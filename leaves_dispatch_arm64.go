@@ -17,14 +17,6 @@ import (
 
 const availableLanes = 8
 
-// hasLeafX8 reports that arm64 has no dedicated x8 kernel; a remainder of
-// eight drains through the pair loop at the same cost.
-const hasLeafX8 = false
-
-// hasLeafBatch5 reports that this platform can drain complete leaves in
-// 5-chunk hybrid scalar/NEON batches.
-var hasLeafBatch5 = cpuid.HasSHA3
-
 // pairRemainderMax bounds the leaf counts the pair loop may drain after the x3
 // hybrid has handled a three-leaf remainder.
 const pairRemainderMax = availableLanes
@@ -71,18 +63,20 @@ func fuseTailChunks(nFull, nShared int) int {
 // x3 route wins; at and above it, the complete leaf and tail share a pair.
 const tripleSerialTailBlocks = 32
 
-// ─── Kernels ───
-
 // ─── Kernel wrappers ───
 
-// processLeavesArch reports that arm64 has no x8 kernel (see hasLeafX8).
-func processLeavesArch(_ []byte, _ *[256]byte) bool { return false }
+// Every try wrapper returns false without modifying its output arguments when
+// the requested kernel is unavailable or does not support the requested shape.
 
-// processLeavesBatch5Arch computes 5 leaf CVs from 5 contiguous chunks via the
-// hybrid scalar/NEON kernel: chunks 0-3 as two x2 NEON pair passes and chunk 4
-// on the scalar pipes, woven into the NEON round stream. Input must be
+// tryProcessLeavesX8Arch reports that arm64 has no x8 kernel; eight leaves
+// drain through the pair loop at the same cost.
+func tryProcessLeavesX8Arch(_ []byte, _ *[256]byte) bool { return false }
+
+// tryProcessLeavesBatch5Arch computes 5 leaf CVs from 5 contiguous chunks via
+// the hybrid scalar/NEON kernel: chunks 0-3 as two x2 NEON pair passes and
+// chunk 4 on the scalar pipes, woven into the NEON round stream. Input must be
 // 5*ChunkSize contiguous bytes; the CVs land in cvs[:160].
-func processLeavesBatch5Arch(input []byte, cvs *[256]byte) bool {
+func tryProcessLeavesBatch5Arch(input []byte, cvs *[256]byte) bool {
 	if !cpuid.HasSHA3 {
 		return false
 	}
@@ -90,9 +84,9 @@ func processLeavesBatch5Arch(input []byte, cvs *[256]byte) bool {
 	return true
 }
 
-// processLeavesTripleArch computes 3 leaf CVs by weaving one scalar leaf into
+// tryProcessLeavesTripleArch computes 3 leaf CVs by weaving one scalar leaf into
 // a 2-wide NEON pair and finishing its remaining half after the pair closes.
-func processLeavesTripleArch(input []byte, cvs *[256]byte) bool {
+func tryProcessLeavesTripleArch(input []byte, cvs *[256]byte) bool {
 	if !cpuid.HasSHA3 {
 		return false
 	}
@@ -104,9 +98,9 @@ func processLeavesTripleArch(input []byte, cvs *[256]byte) bool {
 	return true
 }
 
-// processLeavesPairArch computes 2 leaf CVs from 2 contiguous chunks via a
+// tryProcessLeavesPairArch computes 2 leaf CVs from 2 contiguous chunks via a
 // single x2 NEON pair, reading directly from the input with no scratch buffer.
-func processLeavesPairArch(input []byte, cvs *[256]byte) bool {
+func tryProcessLeavesPairArch(input []byte, cvs *[256]byte) bool {
 	if !cpuid.HasSHA3 {
 		return false
 	}
@@ -114,14 +108,14 @@ func processLeavesPairArch(input []byte, cvs *[256]byte) bool {
 	return true
 }
 
-// processLeavesRunArch reports that no multi-leaf run kernel is used on arm64;
+// tryProcessLeavesRunArch reports that no multi-leaf run kernel is used on arm64;
 // the 2-wide pair pass already drains remainders to fewer than two leaves.
-func processLeavesRunArch(_ []byte, _ int, _ *[256]byte) bool { return false }
+func tryProcessLeavesRunArch(_ []byte, _ int, _ *[256]byte) bool { return false }
 
-// processS0LeavesArch fuses the final node's absorption of S_0 || kt12 marker
+// tryProcessS0LeavesArch fuses the final node's absorption of S_0 || kt12 marker
 // with leaf compression. Two chunks use the x2 NEON pair; three use the x3
 // hybrid with S_0 on the scalar lane. final must be a zero sponge.
-func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) bool {
+func tryProcessS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) bool {
 	if !cpuid.HasSHA3 {
 		return false
 	}
@@ -139,21 +133,23 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 	return true
 }
 
-// processS0LeavesTailArch reports that arm64 has no S_0+leaves+partial fused
+// tryProcessS0LeavesTailArch reports that arm64 has no S_0+leaves+partial fused
 // kernel; the 2-wide S_0 pair is always full.
-func processS0LeavesTailArch(_ []byte, _, _ int, _, _ *sponge, _ *[256]byte) bool { return false }
+func tryProcessS0LeavesTailArch(_ []byte, _, _ int, _, _ *sponge, _ *[256]byte) bool {
+	return false
+}
 
 // fuseS0TailBlocks reports that no partial-chunk blocks ride the fused S_0
-// pass on arm64 (see processS0LeavesTailArch).
+// pass on arm64 (see tryProcessS0LeavesTailArch).
 func fuseS0TailBlocks(_, _ int) int { return 0 }
 
-// processLeavesTailArch computes the trailing complete leaf's CV while
+// tryProcessLeavesTailArch computes the trailing complete leaf's CV while
 // absorbing the partial leaf head's nShared whole rate-blocks into partial's
 // state in the same 2-wide pass; the caller finishes the partial leaf's
 // ragged tail and padding through the sponge. trailing must hold the
 // complete chunk followed contiguously by the partial head; the pair kernel
 // hosts exactly one complete leaf (n == 1).
-func processLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, partial *sponge) bool {
+func tryProcessLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, partial *sponge) bool {
 	if !cpuid.HasSHA3 || n != 1 {
 		return false
 	}

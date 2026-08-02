@@ -76,8 +76,14 @@ func (h *Hasher) absorbTreeData(p []byte) {
 			if lead > 0 {
 				h.processLeafBatch(p[:lead*ChunkSize], lead)
 			}
-			h.startLeafFused(p[lead*ChunkSize:], n, tail)
-			return
+			if h.startLeafFused(p[lead*ChunkSize:], n, tail) {
+				return
+			}
+			// A capability change between scheduling and dispatch must not
+			// change the digest. The leading leaves are already absorbed; let
+			// the ordinary paths process the remaining leaves and tail.
+			p = p[lead*ChunkSize:]
+			nFull = n
 		}
 	}
 
@@ -113,24 +119,22 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	// with a fifth hidden on the scalar pipes. A remainder of one gives back
 	// one batch so pairs drain six leaves without a stranded serial pass; a
 	// remainder of three stays available for the hybrid x3 kernel below.
-	if hasLeafBatch5 {
-		n5 := nLeaves / 5
-		if n5 > 0 && nLeaves-n5*5 == 1 {
-			n5--
+	n5 := nLeaves / 5
+	if n5 > 0 && nLeaves-n5*5 == 1 {
+		n5--
+	}
+	for range n5 {
+		off := idx * ChunkSize
+		if !tryProcessLeavesBatch5Arch(data[off:off+5*ChunkSize], &cvs) {
+			break
 		}
-		for range n5 {
-			off := idx * ChunkSize
-			if !processLeavesBatch5Arch(data[off:off+5*ChunkSize], &cvs) {
-				break
-			}
-			h.final.absorbCVs(cvs[:160])
-			idx += 5
-		}
+		h.final.absorbCVs(cvs[:160])
+		idx += 5
 	}
 
-	for hasLeafX8 && idx+8 <= nLeaves {
+	for idx+8 <= nLeaves {
 		off := idx * ChunkSize
-		if !processLeavesArch(data[off:off+8*ChunkSize], &cvs) {
+		if !tryProcessLeavesX8Arch(data[off:off+8*ChunkSize], &cvs) {
 			break
 		}
 		h.final.absorbCVs(cvs[:])
@@ -139,7 +143,7 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 
 	// A three-leaf remainder can use the arm64 hybrid x3 kernel: one scalar
 	// leaf advances alongside a NEON pair, then finishes after the pair closes.
-	if rem := nLeaves - idx; rem == 3 && processLeavesTripleArch(data[idx*ChunkSize:nLeaves*ChunkSize], &cvs) {
+	if rem := nLeaves - idx; rem == 3 && tryProcessLeavesTripleArch(data[idx*ChunkSize:nLeaves*ChunkSize], &cvs) {
 		h.final.absorbCVs(cvs[:96])
 		idx += 3
 	}
@@ -151,7 +155,7 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	// the flat masked run pass only for a remainder of exactly two.
 	for idx+2 <= nLeaves && nLeaves-idx <= pairRemainderMax {
 		off := idx * ChunkSize
-		if !processLeavesPairArch(data[off:off+2*ChunkSize], &cvs) {
+		if !tryProcessLeavesPairArch(data[off:off+2*ChunkSize], &cvs) {
 			break
 		}
 		h.final.absorbCVs(cvs[:64])
@@ -160,7 +164,7 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 
 	// Drain a 2..7 leaf remainder in one direct-read masked-gather pass where a
 	// run kernel exists (amd64 AVX-512), again with no scratch buffer.
-	if rem := nLeaves - idx; rem >= 2 && processLeavesRunArch(data[idx*ChunkSize:nLeaves*ChunkSize], rem, &cvs) {
+	if rem := nLeaves - idx; rem >= 2 && tryProcessLeavesRunArch(data[idx*ChunkSize:nLeaves*ChunkSize], rem, &cvs) {
 		h.final.absorbCVs(cvs[:rem*32])
 		idx += rem
 	}

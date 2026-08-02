@@ -12,13 +12,11 @@ import (
 
 func TestWriteForceGenericFallback(t *testing.T) {
 	savedAVX512, savedAVX2 := cpuid.HasAVX512, cpuid.HasAVX2
-	savedHasLeafX8 := hasLeafX8
 	defer func() {
 		cpuid.HasAVX512, cpuid.HasAVX2 = savedAVX512, savedAVX2
-		hasLeafX8 = savedHasLeafX8
 	}()
 	cpuid.HasAVX512, cpuid.HasAVX2 = false, false
-	hasLeafX8 = false
+	testUnavailableKernelWrappers(t)
 
 	for _, size := range []int{
 		0, ChunkSize, 2 * ChunkSize, 9*ChunkSize + 137, 1024 * 1024,

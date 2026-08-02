@@ -17,11 +17,11 @@ func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 	var cvs [256]byte
 	defer wipeBytes(cvs[:])
 	if tailBlocks > 0 {
-		if !processS0LeavesTailArch(p, n, tailBlocks, &h.final, &h.leaf, &cvs) {
+		if !tryProcessS0LeavesTailArch(p, n, tailBlocks, &h.final, &h.leaf, &cvs) {
 			return false
 		}
 		h.leafLen = tailBlocks * rate
-	} else if !processS0LeavesArch(p[:n*ChunkSize], n, &h.final, &cvs) {
+	} else if !tryProcessS0LeavesArch(p[:n*ChunkSize], n, &h.final, &cvs) {
 		return false
 	}
 	h.state = stateTree
@@ -29,16 +29,20 @@ func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 	return true
 }
 
-// startLeafFused processes n complete leaves and the whole rate blocks of tail
-// together, leaving the partial leaf ready for subsequent writes.
-func (h *Hasher) startLeafFused(trailing []byte, n int, tail []byte) {
+// startLeafFused attempts to process n complete leaves and the whole rate blocks
+// of tail together, leaving the partial leaf ready for subsequent writes. It
+// returns false without changing h when the scheduled kernel is unavailable.
+func (h *Hasher) startLeafFused(trailing []byte, n int, tail []byte) bool {
 	nShared := len(tail) / rate
 	var cvs [256]byte
 	defer wipeBytes(cvs[:])
-	processLeavesTailArch(trailing, n, nShared, &cvs, &h.leaf)
+	if !tryProcessLeavesTailArch(trailing, n, nShared, &cvs, &h.leaf) {
+		return false
+	}
 	h.final.absorbCVs(cvs[:n*32])
 	h.leaf.absorb(tail[nShared*rate:])
 	h.leafLen = len(tail)
+	return true
 }
 
 // finishLeaf finalizes the current leaf and absorbs its chain value.

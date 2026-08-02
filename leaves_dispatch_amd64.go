@@ -25,14 +25,6 @@ import (
 
 const availableLanes = 8
 
-// hasLeafX8 reports whether amd64 can drain whole 8-leaf batches through a
-// dedicated SIMD kernel.
-var hasLeafX8 = cpuid.HasAVX512 || cpuid.HasAVX2
-
-// hasLeafBatch5 reports that amd64 has no hybrid scalar/SIMD batch kernel;
-// with 16 general-purpose registers a woven scalar lane would spill heavily.
-const hasLeafBatch5 = false
-
 // pairRemainderMax bounds the leaf counts the pair loop may drain: a 2-wide
 // XMM pass costs ~0.63 of a flat masked pass (Emerald Rapids), so a pair
 // wins for a remainder of exactly two but chains of pairs lose to the
@@ -128,11 +120,12 @@ func fuseTailChunks(nFull, nShared int) int {
 	return nFull % 4
 }
 
-// ─── Kernels ───
-
 // ─── Kernel wrappers ───
 
-func processLeavesArch(input []byte, cvs *[256]byte) bool {
+// Every try wrapper returns false without modifying its output arguments when
+// the requested kernel is unavailable or does not support the requested shape.
+
+func tryProcessLeavesX8Arch(input []byte, cvs *[256]byte) bool {
 	if cpuid.HasAVX512 {
 		processLeavesAVX512(unsafe.SliceData(input), &cvs[0])
 		return true
@@ -144,13 +137,13 @@ func processLeavesArch(input []byte, cvs *[256]byte) bool {
 	return false
 }
 
-func processLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
+func tryProcessLeavesBatch5Arch(_ []byte, _ *[256]byte) bool { return false }
 
-func processLeavesTripleArch(_ []byte, _ *[256]byte) bool { return false }
+func tryProcessLeavesTripleArch(_ []byte, _ *[256]byte) bool { return false }
 
-// processLeavesPairArch computes 2 leaf CVs from 2 contiguous chunks via a
+// tryProcessLeavesPairArch computes 2 leaf CVs from 2 contiguous chunks via a
 // single 2-wide XMM pass, reading directly from the input with plain loads.
-func processLeavesPairArch(input []byte, cvs *[256]byte) bool {
+func tryProcessLeavesPairArch(input []byte, cvs *[256]byte) bool {
 	if !cpuid.HasAVX512 {
 		return false
 	}
@@ -158,12 +151,15 @@ func processLeavesPairArch(input []byte, cvs *[256]byte) bool {
 	return true
 }
 
-// processLeavesRunArch computes n (2..7) leaf CVs by reading the chunks directly
-// with no scratch buffer: on AVX-512 a 4-wide YMM quad pass for n up to 4
+// tryProcessLeavesRunArch computes n (2..7) leaf CVs by reading the chunks
+// directly with no scratch buffer: on AVX-512 a 4-wide YMM quad pass for n up to 4
 // (256-bit ops get three vector ALU ports where 512-bit get two, so the quad
 // costs ~0.70 of the masked 8-wide pass) and the 8-wide masked-gather pass
 // above that; on AVX2 one to two x4 passes with dummy lanes.
-func processLeavesRunArch(data []byte, n int, cvs *[256]byte) bool {
+func tryProcessLeavesRunArch(data []byte, n int, cvs *[256]byte) bool {
+	if n < 2 || n > 7 {
+		return false
+	}
 	if cpuid.HasAVX512 {
 		if n <= 4 {
 			processLeavesQuadAVX512(unsafe.SliceData(data), &cvs[0], uint64(n))
@@ -195,14 +191,14 @@ func processLeavesRunArch(data []byte, n int, cvs *[256]byte) bool {
 	return true
 }
 
-// processS0LeavesArch fuses the final node's absorption of S_0 || kt12 marker
+// tryProcessS0LeavesArch fuses the final node's absorption of S_0 || kt12 marker
 // with leaf compression in one pass: on AVX-512 a 2-wide XMM pair at n == 2
 // (pair cost instead of a quad's masking setup), a 4-wide YMM quad for n in
 // 3..4, or an 8-wide pass for n in 5..8; on AVX2 a quad pass for n in 2..4.
 // input must be n*ChunkSize contiguous bytes (S_0 then n-1 leaves) and final
 // must be a zero sponge. On return, final holds the state after S_0 || marker
 // and cvs[32:n*32] the leaves' chain values.
-func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) bool {
+func tryProcessS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) bool {
 	switch {
 	case n < 2:
 		return false
@@ -229,7 +225,7 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 	return true
 }
 
-// processS0LeavesTailArch fuses processS0LeavesArch with the trailing partial
+// tryProcessS0LeavesTailArch fuses tryProcessS0LeavesArch with the trailing partial
 // leaf: one pass computes the final node's S_0 || marker state (lane 0), n-1
 // leaf CVs (cvs[32:n*32]), and absorbs the partial leaf's nShared whole
 // rate-blocks — read from input[n*ChunkSize:] — into lane n, whose
@@ -238,7 +234,7 @@ func processS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) boo
 // zero sponge. Lane n must be free: on AVX-512 a 4-wide YMM quad hosts n in
 // 2..3 and a masked 8-wide pass n in 4..7; a quad pass hosts n in 2..3 on
 // AVX2.
-func processS0LeavesTailArch(input []byte, n, nShared int, final, partial *sponge, cvs *[256]byte) bool {
+func tryProcessS0LeavesTailArch(input []byte, n, nShared int, final, partial *sponge, cvs *[256]byte) bool {
 	switch {
 	case n < 2:
 		return false
@@ -303,14 +299,17 @@ func fuseS0TailBlocks(chunks, tail int) int {
 // ~6.5µs (measured Emerald Rapids), crossing at 7 blocks.
 const s0TailPairMin = 7
 
-// processLeavesTailArch computes n trailing complete leaf CVs while
+// tryProcessLeavesTailArch computes n trailing complete leaf CVs while
 // absorbing the following partial leaf's nShared whole rate-blocks into
 // partial's state in the same pass — on AVX-512 a 2-wide XMM pair for n == 1,
 // a 4-wide YMM quad for n in 2..3, or a masked gather pass for n in 4..7; on
 // AVX2 a quad pass with a tail lane for n in 1..3. The caller finishes the
 // partial leaf's ragged tail and padding through the sponge. trailing must
 // hold the n complete chunks followed contiguously by the partial head.
-func processLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, partial *sponge) bool {
+func tryProcessLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, partial *sponge) bool {
+	if n < 1 || n > 7 {
+		return false
+	}
 	if cpuid.HasAVX512 {
 		switch {
 		case n == 1:

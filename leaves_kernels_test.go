@@ -7,6 +7,123 @@ import (
 	"testing"
 )
 
+type kernelTry func(*[256]byte, *sponge, *sponge) bool
+
+func assertTryKernelFailure(t *testing.T, reason string, try kernelTry) {
+	t.Helper()
+	var cvs [256]byte
+	for i := range cvs {
+		cvs[i] = byte(i) ^ 0xA5
+	}
+	final := sponge{pos: 17}
+	final.a[0] = 1
+	partial := sponge{pos: 23}
+	partial.a[0] = 2
+	wantCVs, wantFinal, wantPartial := cvs, final, partial
+
+	if try(&cvs, &final, &partial) {
+		t.Fatalf("%s kernel reported success", reason)
+	}
+	if cvs != wantCVs || final != wantFinal || partial != wantPartial {
+		t.Fatalf("%s kernel modified its outputs", reason)
+	}
+}
+
+// testUnavailableKernelWrappers pins the try-wrapper contract after an
+// architecture test has disabled its CPU features: false means no output was
+// modified, so generic fallback remains safe even if scheduling and dispatch
+// observe different capability state.
+func testUnavailableKernelWrappers(t *testing.T) {
+	t.Helper()
+	input := make([]byte, 8*ChunkSize+rate)
+
+	tests := []struct {
+		name string
+		try  kernelTry
+	}{
+		{"x8", func(cvs *[256]byte, _, _ *sponge) bool {
+			return tryProcessLeavesX8Arch(input[:8*ChunkSize], cvs)
+		}},
+		{"batch5", func(cvs *[256]byte, _, _ *sponge) bool {
+			return tryProcessLeavesBatch5Arch(input[:5*ChunkSize], cvs)
+		}},
+		{"triple", func(cvs *[256]byte, _, _ *sponge) bool {
+			return tryProcessLeavesTripleArch(input[:3*ChunkSize], cvs)
+		}},
+		{"pair", func(cvs *[256]byte, _, _ *sponge) bool {
+			return tryProcessLeavesPairArch(input[:2*ChunkSize], cvs)
+		}},
+		{"run", func(cvs *[256]byte, _, _ *sponge) bool {
+			return tryProcessLeavesRunArch(input[:2*ChunkSize], 2, cvs)
+		}},
+		{"s0", func(cvs *[256]byte, final, _ *sponge) bool {
+			return tryProcessS0LeavesArch(input[:2*ChunkSize], 2, final, cvs)
+		}},
+		{"s0_tail", func(cvs *[256]byte, final, partial *sponge) bool {
+			return tryProcessS0LeavesTailArch(input[:2*ChunkSize+rate], 2, 1, final, partial, cvs)
+		}},
+		{"leaf_tail", func(cvs *[256]byte, _, partial *sponge) bool {
+			return tryProcessLeavesTailArch(input[:ChunkSize+rate], 1, 1, cvs, partial)
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assertTryKernelFailure(t, "unavailable", tc.try)
+		})
+	}
+
+	t.Run("fused_leaf_caller", func(t *testing.T) {
+		h := New(nil)
+		h.final = sponge{pos: 17}
+		h.final.a[0] = 1
+		h.leaf = sponge{pos: 23}
+		h.leaf.a[0] = 2
+		h.leafLen = 31
+		wantFinal, wantLeaf, wantLeafLen := h.final, h.leaf, h.leafLen
+
+		if h.startLeafFused(input[:ChunkSize+rate], 1, input[ChunkSize:ChunkSize+rate]) {
+			t.Fatal("unavailable fused leaf kernel reported success")
+		}
+		if h.final != wantFinal || h.leaf != wantLeaf || h.leafLen != wantLeafLen {
+			t.Fatal("failed fused leaf dispatch modified the Hasher")
+		}
+	})
+}
+
+func TestTryKernelInvalidShapesDoNotMutate(t *testing.T) {
+	input := make([]byte, 8*ChunkSize+rate)
+	tests := []struct {
+		name string
+		try  kernelTry
+	}{
+		{"run_below_range", func(cvs *[256]byte, _, _ *sponge) bool {
+			return tryProcessLeavesRunArch(input[:ChunkSize], 1, cvs)
+		}},
+		{"run_above_range", func(cvs *[256]byte, _, _ *sponge) bool {
+			return tryProcessLeavesRunArch(input[:8*ChunkSize], 8, cvs)
+		}},
+		{"s0_below_range", func(cvs *[256]byte, final, _ *sponge) bool {
+			return tryProcessS0LeavesArch(input[:ChunkSize], 1, final, cvs)
+		}},
+		{"s0_tail_below_range", func(cvs *[256]byte, final, partial *sponge) bool {
+			return tryProcessS0LeavesTailArch(input[:ChunkSize+rate], 1, 1, final, partial, cvs)
+		}},
+		{"leaf_tail_below_range", func(cvs *[256]byte, _, partial *sponge) bool {
+			return tryProcessLeavesTailArch(input[:rate], 0, 1, cvs, partial)
+		}},
+		{"leaf_tail_above_range", func(cvs *[256]byte, _, partial *sponge) bool {
+			return tryProcessLeavesTailArch(input, 8, 1, cvs, partial)
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assertTryKernelFailure(t, "invalid-shape", tc.try)
+		})
+	}
+}
+
 func processLeavesGeneric(input []byte, cvs *[256]byte) {
 	for inst := range 8 {
 		var s sponge
@@ -32,7 +149,7 @@ func TestProcessLeaves(t *testing.T) {
 
 	// Compute CVs via the arch kernel.
 	var got [256]byte
-	if !processLeavesArch(input, &got) {
+	if !tryProcessLeavesX8Arch(input, &got) {
 		t.Skip("no x8 kernel on this platform")
 	}
 
@@ -58,12 +175,12 @@ func BenchmarkProcessLeaves(b *testing.B) {
 		input[i] = byte(i)
 	}
 	var cvs [256]byte
-	if !processLeavesArch(input, &cvs) {
+	if !tryProcessLeavesX8Arch(input, &cvs) {
 		b.Skip("no x8 kernel on this platform")
 	}
 	b.SetBytes(8 * blockSize)
 	for b.Loop() {
-		processLeavesArch(input, &cvs)
+		tryProcessLeavesX8Arch(input, &cvs)
 	}
 }
 
@@ -91,7 +208,7 @@ func TestProcessLeavesPair(t *testing.T) {
 	}
 
 	var got [256]byte
-	if !processLeavesPairArch(input, &got) {
+	if !tryProcessLeavesPairArch(input, &got) {
 		t.Skip("no pair kernel on this platform")
 	}
 
@@ -108,7 +225,7 @@ func TestProcessLeavesBatch5(t *testing.T) {
 	}
 
 	var got [256]byte
-	if !processLeavesBatch5Arch(input, &got) {
+	if !tryProcessLeavesBatch5Arch(input, &got) {
 		t.Skip("no batch5 kernel on this platform")
 	}
 
@@ -121,12 +238,12 @@ func BenchmarkProcessLeavesBatch5(b *testing.B) {
 		input[i] = byte(i)
 	}
 	var cvs [256]byte
-	if !processLeavesBatch5Arch(input, &cvs) {
+	if !tryProcessLeavesBatch5Arch(input, &cvs) {
 		b.Skip("no batch5 kernel on this platform")
 	}
 	b.SetBytes(5 * ChunkSize)
 	for b.Loop() {
-		processLeavesBatch5Arch(input, &cvs)
+		tryProcessLeavesBatch5Arch(input, &cvs)
 	}
 }
 
@@ -137,7 +254,7 @@ func TestProcessLeavesTriple(t *testing.T) {
 	}
 
 	var got [256]byte
-	if !processLeavesTripleArch(input, &got) {
+	if !tryProcessLeavesTripleArch(input, &got) {
 		t.Skip("no x3 kernel on this platform")
 	}
 	checkLeafCVs(t, "", input, got[:], 3)
@@ -149,12 +266,12 @@ func BenchmarkProcessLeavesTriple(b *testing.B) {
 		input[i] = byte(i)
 	}
 	var cvs [256]byte
-	if !processLeavesTripleArch(input, &cvs) {
+	if !tryProcessLeavesTripleArch(input, &cvs) {
 		b.Skip("no x3 kernel on this platform")
 	}
 	b.SetBytes(3 * ChunkSize)
 	for b.Loop() {
-		processLeavesTripleArch(input, &cvs)
+		tryProcessLeavesTripleArch(input, &cvs)
 	}
 }
 
@@ -172,7 +289,7 @@ func TestProcessS0Leaves(t *testing.T) {
 
 		var final sponge
 		var cvs [256]byte
-		if !processS0LeavesArch(input, n, &final, &cvs) {
+		if !tryProcessS0LeavesArch(input, n, &final, &cvs) {
 			continue
 		}
 		ran = true
@@ -207,7 +324,7 @@ func TestProcessLeavesRun(t *testing.T) {
 		}
 
 		var got [256]byte
-		if !processLeavesRunArch(input, n, &got) {
+		if !tryProcessLeavesRunArch(input, n, &got) {
 			t.Skipf("no run kernel on this platform")
 		}
 
