@@ -89,7 +89,7 @@ func lengthEncode(b []byte, value uint64) []byte {
 		return append(b, 0x00)
 	}
 
-	n := 8 - (bits.LeadingZeros64(value|1) / 8)
+	n := 8 - (bits.LeadingZeros64(value) / 8)
 	value <<= (8 - n) * 8
 	for range n {
 		b = append(b, byte(value>>56))
