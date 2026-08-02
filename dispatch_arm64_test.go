@@ -27,3 +27,24 @@ func TestExpectedSHA3(t *testing.T) {
 		t.Fatalf("KT128_EXPECT_SHA3=%q: want \"0\" or \"1\"", want)
 	}
 }
+
+func TestRecommendedWriteBufferSizeARM64(t *testing.T) {
+	savedSHA3 := cpuid.HasSHA3
+	defer func() { cpuid.HasSHA3 = savedSHA3 }()
+
+	for _, tc := range []struct {
+		name             string
+		sha3             bool
+		wantBufferChunks int
+	}{
+		{"SHA3", true, 5},
+		{"scalar", false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cpuid.HasSHA3 = tc.sha3
+			if got, want := RecommendedWriteBufferSize(), tc.wantBufferChunks*ChunkSize; got != want {
+				t.Fatalf("RecommendedWriteBufferSize() = %d, want %d", got, want)
+			}
+		})
+	}
+}

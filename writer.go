@@ -5,6 +5,13 @@ import (
 	"io"
 )
 
+// RecommendedWriteBufferSize returns a buffer size that coalesces small writes
+// into batches suited to the fastest leaf implementation enabled at runtime.
+// The result is always a positive multiple of [ChunkSize].
+func RecommendedWriteBufferSize() int {
+	return recommendedWriteBufferChunks() * ChunkSize
+}
+
 // ClearWriter discards any unflushed data in w, detaches its destination, and
 // makes a best effort to zero its backing buffer. It does not flush w. After
 // ClearWriter returns, w writes to [io.Discard]; call [bufio.Writer.Reset] to

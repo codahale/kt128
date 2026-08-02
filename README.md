@@ -109,6 +109,8 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
   customization string; resetting after that string is cleared makes the next `Read` panic.
 - `ClearWriter` discards pending data from a `bufio.Writer`, detaches its destination, and makes a best effort to zero
   its backing buffer.
+- `RecommendedWriteBufferSize` reports a runtime dispatch-specific buffer size for coalescing small writes into
+  parallel leaf batches.
 - `Pos` returns the number of bytes written so far. `Write` panics before the message length would reach 2^64 bytes
   without an intervening `Reset`.
 - `Hasher.BlockSize()` reports the 168-byte TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.
@@ -126,8 +128,11 @@ the default 4 KiB `bufio.Writer` is too small for this purpose:
 
 ```go
 h := kt128.New(custom)
-w := bufio.NewWriterSize(h, 8*kt128.ChunkSize)
+w := bufio.NewWriterSize(h, kt128.RecommendedWriteBufferSize())
 ```
+
+The recommendation is eight chunks on amd64 with AVX2 or AVX-512, five chunks on arm64 with the SHA3 extension, and
+one chunk on scalar implementations. Larger multiples may be used when retaining more message data is acceptable.
 
 External buffering remains entirely caller managed. A `bufio.Writer` may retain message bytes in its backing array;
 large writes may instead pass directly through to the Hasher. Bytes reported by `w.Buffered()` have not reached the

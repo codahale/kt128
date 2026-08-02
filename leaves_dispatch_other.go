@@ -14,6 +14,8 @@ const availableLanes = 1
 // no pair kernel on this platform.
 const pairRemainderMax = 0
 
+func recommendedWriteBufferChunks() int { return 1 }
+
 func fuseS0Chunks(_, _ int) int { return 0 }
 
 func fuseTailChunks(_, _ int) int { return 0 }

@@ -31,6 +31,13 @@ const availableLanes = 8
 // masked run kernel from three up.
 const pairRemainderMax = 2
 
+func recommendedWriteBufferChunks() int {
+	if cpuid.HasAVX512 || cpuid.HasAVX2 {
+		return availableLanes
+	}
+	return 1
+}
+
 // fuseS0Chunks returns how many chunks (S_0 plus leaves) the fused kernel
 // should consume from a first write containing the given number of full
 // chunks (plus tail trailing bytes), or 0 to skip fusion. Up to

@@ -47,6 +47,31 @@ func TestExpectedISA(t *testing.T) {
 	assertFeature("KT128_EXPECT_BMI2", wantBMI2, cpuid.HasBMI2)
 }
 
+func TestRecommendedWriteBufferSizeAMD64(t *testing.T) {
+	savedAVX512, savedAVX2 := cpuid.HasAVX512, cpuid.HasAVX2
+	defer func() {
+		cpuid.HasAVX512, cpuid.HasAVX2 = savedAVX512, savedAVX2
+	}()
+
+	for _, tc := range []struct {
+		name             string
+		avx512, avx2     bool
+		wantBufferChunks int
+	}{
+		{"AVX-512", true, true, 8},
+		{"AVX-512 without AVX2", true, false, 8},
+		{"AVX2", false, true, 8},
+		{"scalar", false, false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cpuid.HasAVX512, cpuid.HasAVX2 = tc.avx512, tc.avx2
+			if got, want := RecommendedWriteBufferSize(), tc.wantBufferChunks*ChunkSize; got != want {
+				t.Fatalf("RecommendedWriteBufferSize() = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
 func TestScalarAssemblyDispatchRequiresBMI2(t *testing.T) {
 	savedAVX512 := cpuid.HasAVX512
 	savedBMI2 := cpuid.HasBMI2

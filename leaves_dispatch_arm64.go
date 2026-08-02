@@ -21,6 +21,13 @@ const availableLanes = 8
 // hybrid has handled a three-leaf remainder.
 const pairRemainderMax = availableLanes
 
+func recommendedWriteBufferChunks() int {
+	if cpuid.HasSHA3 {
+		return 5
+	}
+	return 1
+}
+
 // fuseS0Chunks returns how many chunks (S_0 plus leaves) the fused kernel
 // should consume from a first write containing the given number of full
 // chunks, or 0 to skip fusion. Three nearly chunk-aligned inputs use the x3
