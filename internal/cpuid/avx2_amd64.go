@@ -2,7 +2,6 @@
 
 package cpuid
 
-func hasAVX2() bool
-func hasAVX512VL() bool
+import "golang.org/x/sys/cpu"
 
-var HasAVX2 = hasAVX2()
+var HasAVX2 = cpu.X86.HasAVX2

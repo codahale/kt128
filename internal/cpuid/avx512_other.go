@@ -1,4 +1,4 @@
-//go:build !amd64 || purego || kt128_disable_avx512
+//go:build !amd64 || purego
 
 package cpuid
 

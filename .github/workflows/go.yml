@@ -36,18 +36,16 @@ jobs:
         - ubuntu-24.04
         - ubuntu-24.04-arm
         config:
-        # "No AVX-512" disables that dispatch path at compile time while retaining
-        # runtime AVX2 detection. The expectations confirm both decisions.
         - { name: "Standard",   tags: "",                     flags: "-race", expect512: "",  expect2: "",  expectSHA3: "",  godebug: "" }
         - { name: "Pure Go",    tags: "purego",               flags: "",      expect512: "",  expect2: "",  expectSHA3: "",  godebug: "" }
-        - { name: "No AVX-512", tags: "kt128_disable_avx512", flags: "-race", expect512: "0", expect2: "1", expectSHA3: "",  godebug: "" }
+        - { name: "No x86 SIMD", tags: "",                    flags: "-race", expect512: "0", expect2: "0", expectSHA3: "",  godebug: "cpu.avx2=off,cpu.avx512f=off" }
         - { name: "No SHA3",    tags: "",                     flags: "-race", expect512: "",  expect2: "",  expectSHA3: "0", godebug: "cpu.sha3=off" }
         exclude:
           # Run the architecture-specific forced fallbacks only where relevant.
           - os: ubuntu-24.04-arm
             config: { name: "Pure Go",    tags: "purego",               flags: "",      expect512: "",  expect2: "",  expectSHA3: "",  godebug: "" }
           - os: ubuntu-24.04-arm
-            config: { name: "No AVX-512", tags: "kt128_disable_avx512", flags: "-race", expect512: "0", expect2: "1", expectSHA3: "",  godebug: "" }
+            config: { name: "No x86 SIMD", tags: "",                    flags: "-race", expect512: "0", expect2: "0", expectSHA3: "",  godebug: "cpu.avx2=off,cpu.avx512f=off" }
           - os: ubuntu-24.04
             config: { name: "No SHA3",    tags: "",                     flags: "-race", expect512: "",  expect2: "",  expectSHA3: "0", godebug: "cpu.sha3=off" }
     runs-on: ${{ matrix.os }}
