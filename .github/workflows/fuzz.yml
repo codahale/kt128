@@ -24,6 +24,7 @@ jobs:
   fuzz:
     name: Fuzz (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -38,9 +39,9 @@ jobs:
         - { name: "Lifecycle (arm64)", os: ubuntu-24.04-arm, target: FuzzHasherLifecycle,     chip: "" }
         - { name: "P1600 (arm64)",     os: ubuntu-24.04-arm, target: FuzzP1600,               chip: "" }
         - { name: "Absorb (arm64)",    os: ubuntu-24.04-arm, target: FuzzFastLoopAbsorb168x1, chip: "" }
-        # The AVX-512 kernels only run on an AVX-512 CPU, so fuzz them under SDE
-        # (Sapphire Rapids). FuzzHasher drives the AVX-512 leaf kernels end-to-end;
-        # the other two exercise the AVX-512 permute/absorb primitives directly.
+        # Exercise the AVX-512 paths under SDE with the single-process stress
+        # driver. Go's fuzz coordinator forks worker subprocesses, which is not
+        # reliable under Pin.
         - { name: "Hasher (spr)",    os: ubuntu-24.04,     target: FuzzHasher,                    chip: spr }
         - { name: "Lifecycle (spr)", os: ubuntu-24.04,     target: FuzzHasherLifecycle,           chip: spr }
         - { name: "P1600 (spr)",     os: ubuntu-24.04,     target: FuzzP1600AVX512,               chip: spr }
@@ -58,6 +59,7 @@ jobs:
     # Persist the generated corpus across runs (keyed per target/arch) so nightly
     # fuzzing accumulates coverage instead of restarting from the seeds each time.
     - name: Restore fuzz corpus
+      if: matrix.chip == ''
       uses: actions/cache@v4
       with:
         path: ~/.cache/go-build/fuzz
@@ -67,7 +69,7 @@ jobs:
 
     - name: Setup SDE
       if: matrix.chip != ''
-      uses: petarpetrovt/setup-sde@v5.0
+      uses: petarpetrovt/setup-sde@31aa4a8e85e109bef00f1d838613fcc6ec421271
       with:
         environmentVariableName: SDE_PATH
         sdeVersion: "10.8.0"
@@ -76,15 +78,18 @@ jobs:
       if: matrix.chip == ''
       run: go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime "${FUZZITERATIONS}x" .
 
-    # Compile natively, then fuzz the binary under SDE so the emulator only runs
-    # the test and its fuzz workers, never the Go toolchain.
-    - name: Fuzz under SDE
+    # Compile natively, then run deterministic fuzz-equivalent checks in one
+    # process under SDE. This keeps Pin away from Go's fuzz-worker fork path.
+    - name: Stress under SDE
       if: matrix.chip != ''
       env:
         # All SDE fuzz targets emulate an AVX-512 CPU.
         KT128_EXPECT_AVX512: "1"
         KT128_EXPECT_AVX2: "1"
         KT128_EXPECT_BMI2: "1"
+        KT128_STRESS_TARGET: ${{ matrix.target }}
+        KT128_STRESS_ITERATIONS: ${{ env.FUZZITERATIONS }}
+        KT128_STRESS_SEED: ${{ github.run_id }}
       run: |
         go test -c -o kt128.test .
         # Preflight: fail loudly if SDE did not actually enable AVX-512. Otherwise
@@ -92,16 +97,14 @@ jobs:
         # AVX2 path), and "no fuzz tests to fuzz" exits 0 — a green run that tested
         # nothing.
         "$SDE_PATH/sde64" -${{ matrix.chip }} -- ./kt128.test -test.run '^TestExpectedISA$' -test.v
-        # Pin's fork handling is unstable with multiple Go fuzz workers.
+        echo "SDE stress target=$KT128_STRESS_TARGET seed=$KT128_STRESS_SEED iterations=$KT128_STRESS_ITERATIONS"
         "$SDE_PATH/sde64" -${{ matrix.chip }} -- ./kt128.test \
-          -test.run '^$' -test.fuzz '^${{ matrix.target }}$' \
-          -test.fuzztime "${FUZZITERATIONS}x" -test.parallel 1 \
-          -test.fuzzcachedir "$(go env GOCACHE)/fuzz"
+          -test.run '^TestSDEStress$' -test.timeout 20m
 
     # On a crash, go test writes the reproducer to testdata/fuzz/<Target>/; keep
     # it so the failing input can be replayed locally.
     - name: Upload failing inputs
-      if: failure()
+      if: failure() && matrix.chip == ''
       uses: actions/upload-artifact@v4
       with:
         name: fuzz-failure-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.chip }}

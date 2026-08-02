@@ -33,40 +33,46 @@ func FuzzHasher(f *testing.F) {
 	// Large customization string so S_0 straddles message and suffix.
 	f.Add([]byte("m"), bytes.Repeat([]byte{0x11}, ChunkSize+64), uint16(3), uint16(96))
 
-	f.Fuzz(func(t *testing.T, msg, custom []byte, chunkRaw, outRaw uint16) {
-		// Bound sizes so iterations stay fast while still spanning chunk and
-		// SIMD-batch boundaries. 96 KiB reaches a full 8-wide leaf batch plus a
-		// remainder; chunk in [1, 8193] guarantees large inputs are split across
-		// many Write calls; outLen in [1, 4096] spans many squeeze blocks (rate
-		// is 168). Without the cap the fuzzer balloons inputs until chunk=1 over a
-		// huge message dominates each iteration and throughput collapses.
-		const maxLen = 96 * 1024
-		if len(msg) > maxLen {
-			msg = msg[:maxLen]
-		}
-		if len(custom) > maxLen {
-			custom = custom[:maxLen]
-		}
-		chunk := int(chunkRaw)%(ChunkSize+1) + 1
-		outLen := int(outRaw)%4096 + 1
+	f.Fuzz(checkHasherInput)
+}
 
-		h := New(custom)
-		for off := 0; off < len(msg); off += chunk {
-			if _, err := h.Write(msg[off:min(off+chunk, len(msg))]); err != nil {
-				t.Fatalf("Write: %v", err)
-			}
-		}
-		got := make([]byte, outLen)
-		if _, err := h.Read(got); err != nil {
-			t.Fatalf("Read: %v", err)
-		}
+// checkHasherInput runs one end-to-end differential input. It is shared by the
+// coverage-guided fuzzer and the single-process SDE stress test.
+func checkHasherInput(t *testing.T, msg, custom []byte, chunkRaw, outRaw uint16) {
+	t.Helper()
 
-		want := referenceKT128(msg, custom, outLen)
-		if !bytes.Equal(got, want) {
-			t.Fatalf("KT128 mismatch (msg=%d custom=%d chunk=%d out=%d)\n got  %x\n want %x",
-				len(msg), len(custom), chunk, outLen, got, want)
+	// Bound sizes so iterations stay fast while still spanning chunk and
+	// SIMD-batch boundaries. 96 KiB reaches a full 8-wide leaf batch plus a
+	// remainder; chunk in [1, 8193] guarantees large inputs are split across
+	// many Write calls; outLen in [1, 4096] spans many squeeze blocks (rate
+	// is 168). Without the cap the fuzzer balloons inputs until chunk=1 over a
+	// huge message dominates each iteration and throughput collapses.
+	const maxLen = 96 * 1024
+	if len(msg) > maxLen {
+		msg = msg[:maxLen]
+	}
+	if len(custom) > maxLen {
+		custom = custom[:maxLen]
+	}
+	chunk := int(chunkRaw)%(ChunkSize+1) + 1
+	outLen := int(outRaw)%4096 + 1
+
+	h := New(custom)
+	for off := 0; off < len(msg); off += chunk {
+		if _, err := h.Write(msg[off:min(off+chunk, len(msg))]); err != nil {
+			t.Fatalf("Write: %v", err)
 		}
-	})
+	}
+	got := make([]byte, outLen)
+	if _, err := h.Read(got); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+
+	want := referenceKT128(msg, custom, outLen)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("KT128 mismatch (msg=%d custom=%d chunk=%d out=%d)\n got  %x\n want %x",
+			len(msg), len(custom), chunk, outLen, got, want)
+	}
 }
 
 // referenceKT128 computes KT128(msg, custom) truncated to outLen bytes using
