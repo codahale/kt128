@@ -1,6 +1,7 @@
 # kt128
 
-`kt128` is a Go implementation of KT128 (KangarooTwelve) as specified in RFC 9861.
+`kt128` is a Go implementation of KT128 (KangarooTwelve) as specified in
+[RFC 9861](https://www.rfc-editor.org/rfc/rfc9861.html).
 
 KT128 is an extendable-output function (XOF) built on TurboSHAKE128. This package supports incremental writes,
 arbitrary-length output, customization strings, and optimized tree hashing for large inputs.
@@ -32,36 +33,48 @@ sum := kt128.Sum256([]byte("hello, world"), nil)
 fmt.Printf("%x\n", sum)
 ```
 
-For incremental input or arbitrary-length output:
+For incremental input with a fixed 32-byte digest:
+
+```go
+h := kt128.New(nil)
+_, _ = h.Write([]byte("hello, "))
+_, _ = h.Write([]byte("world"))
+sum := h.Sum(nil)
+```
+
+`Sum` appends the digest to its argument without finalizing the hasher, so more input may be written afterward.
+
+For arbitrary-length XOF output:
 
 ```go
 package main
 
 import (
-	"encoding/hex"
-	"fmt"
+ "encoding/hex"
+ "fmt"
 
-	"github.com/codahale/kt128"
+ "github.com/codahale/kt128"
 )
 
 func main() {
-	h := kt128.New(nil)
-	_, _ = h.Write([]byte("hello, world"))
+ h := kt128.New(nil)
+ _, _ = h.Write([]byte("hello, world"))
 
-	out := make([]byte, 32)
-	_, _ = h.Read(out)
+ out := make([]byte, 32)
+ _, _ = h.Read(out)
 
-	fmt.Println(hex.EncodeToString(out))
+ fmt.Println(hex.EncodeToString(out))
 }
 ```
 
-`Read` finalizes the hasher on first use and then continues squeezing output on subsequent calls. Because KT128 is an
-XOF, you choose the output length by the size of the destination buffer.
+Any call to `Read`, including a zero-length call, finalizes the hasher. Subsequent reads continue squeezing the same
+output stream; `Write` and `Sum` panic after finalization. Because KT128 is an XOF, an arbitrary
+number of `Read` calls can be made for an arbitrary number of output bytes.
 
 ## Security
 
 KT128 targets 128-bit security. Use at least 16 output bytes for 128-bit single-target preimage and second-preimage
-resistance, and at least 32 output bytes for 128-bit collision resistance. Multi-target preimage resistance requires
+resistance, and at least 32 output bytes for 128-bit collision resistance. Multi-target preimage resistance may require
 additional output bits as described in RFC 9861 Section 7.
 
 KT128 is designed to be fast and is not a password-hashing function. Use a purpose-built password-hashing function for
@@ -95,16 +108,17 @@ the customization again, making each Hasher independently owned.
 Once the input (the message plus the customization string and its length encoding) exceeds one 8 KiB KT128 chunk, the
 implementation switches to tree hashing. Leaf compression is processed in parallel:
 
-- `amd64`: 8-wide AVX-512 kernels for whole batches and masked remainders, with 2-wide AVX-512VL kernels where only
-  two lanes are live; AVX2 kernels when AVX-512 is unavailable; generic kernels when neither ISA is available
+- `amd64`: 8-wide AVX-512 kernels for whole batches and 5–7-leaf remainders, 4-wide kernels for 3–4 leaves, and 2-wide
+  kernels for two leaves; AVX2 kernels when AVX-512 is unavailable; generic kernels when neither ISA is available
 - `arm64` with the SHA3 extension: a hybrid scalar/NEON kernel that compresses five chunks per pass — four on the
   NEON unit and a fifth woven onto the otherwise-idle scalar pipes — with 2-wide NEON kernels draining remainders;
   generic kernels otherwise
 - other targets or `purego`: scalar fallback
 
-The first chunk and any trailing partial chunk are fused into the parallel passes rather than absorbed serially, so
-throughput holds across ragged message sizes. Representative one-shot throughput at 1 MiB: ~6.6 GB/s on an Apple M4
-Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AVX-512 disabled).
+On accelerated paths, the first chunk and a trailing partial chunk are fused into parallel passes when a suitable
+kernel is available, preserving throughput across ragged message sizes. Representative one-shot throughput at 1 MiB:
+~6.6 GB/s on an Apple M4 Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AVX-512
+disabled).
 
 ## Assembly Dispatch
 
@@ -153,15 +167,17 @@ arm64 SHA3, and one chunk for generic Go.
 - `New(c)` creates a new hasher with a defensive copy of `c` (pass nil for none).
 - `Write` absorbs message bytes without retaining the input slice.
 - `Sum` appends a 32-byte digest without changing the absorption state. It panics after `Read` finalizes the hasher.
-- `Read(dst)` squeezes output into `dst`.
-- `Clone` implements `hash.Cloner`, returning an independent copy of the current hashing state and customization string.
+- `Read(dst)` finalizes the hasher and squeezes output into `dst`; subsequent reads continue the output stream.
+- `Clone() (hash.Cloner, error)` returns an independent copy at the current absorption or squeeze position, including
+  an independent copy of the customization string. The dynamic result is a `*Hasher`, and the error is always `nil`.
 - `Reset` reinitializes the hasher for reuse while preserving its customization string; it does not guarantee erasure
   of the previous hashing state.
 - `RecommendedWriteBufferSize` reports a runtime dispatch-specific buffer size for coalescing small writes into
   parallel leaf batches.
 - `Pos` returns the number of bytes written so far. `Write` panics before the message length would reach 2^64 bytes
   without an intervening `Reset`.
-- `Hasher.BlockSize()` reports the 168-byte TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.
+- `Size` and `Hasher.Size()` report the 32-byte fixed digest size. `Hasher.BlockSize()` reports the 168-byte
+  TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.
 
 ## Ownership and Buffering
 
@@ -184,9 +200,9 @@ one chunk on scalar implementations. Larger multiples may be used when retaining
 
 External buffering remains entirely caller managed. A `bufio.Writer` may retain message bytes in its backing array;
 large writes may instead pass directly through to the Hasher. Bytes reported by `w.Buffered()` have not reached the
-Hasher. Call `w.Flush()` before `Read`, `Clone`, or `Pos` when those operations must account for every submitted byte.
-Before `Reset`, either flush pending bytes if they belong to the current message or reset the writer without flushing
-if they should be discarded.
+Hasher. Call `w.Flush()` before `Sum`, `Read`, `Clone`, or `Pos` when those operations must account for every submitted
+byte. Before `Reset`, either flush pending bytes if they belong to the current message or reset the writer without
+flushing if they should be discarded.
 The caller owns the writer, its destination, and the sequencing and error handling for `Write` and `Flush`.
 
 Neither resetting a `Hasher` nor resetting a `bufio.Writer` promises to erase its previous contents. The Go compiler
