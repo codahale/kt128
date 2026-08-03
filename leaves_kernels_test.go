@@ -168,22 +168,6 @@ func TestProcessLeaves(t *testing.T) {
 	}
 }
 
-func BenchmarkProcessLeaves(b *testing.B) {
-	const blockSize = 8192
-	input := make([]byte, 8*blockSize)
-	for i := range input {
-		input[i] = byte(i)
-	}
-	var cvs [256]byte
-	if !tryProcessLeavesX8Arch(input, &cvs) {
-		b.Skip("no x8 kernel on this platform")
-	}
-	b.SetBytes(8 * blockSize)
-	for b.Loop() {
-		tryProcessLeavesX8Arch(input, &cvs)
-	}
-}
-
 // checkLeafCVs verifies each 32-byte chain value in cvs against the x1 leaf
 // path for the corresponding chunk of input. prefix labels failures in tests
 // that loop over shapes.
@@ -232,21 +216,6 @@ func TestProcessLeavesBatch5(t *testing.T) {
 	checkLeafCVs(t, "", input, got[:], 5)
 }
 
-func BenchmarkProcessLeavesBatch5(b *testing.B) {
-	input := make([]byte, 5*ChunkSize)
-	for i := range input {
-		input[i] = byte(i)
-	}
-	var cvs [256]byte
-	if !tryProcessLeavesBatch5Arch(input, &cvs) {
-		b.Skip("no batch5 kernel on this platform")
-	}
-	b.SetBytes(5 * ChunkSize)
-	for b.Loop() {
-		tryProcessLeavesBatch5Arch(input, &cvs)
-	}
-}
-
 func TestProcessLeavesTriple(t *testing.T) {
 	input := make([]byte, 3*ChunkSize)
 	for i := range input {
@@ -258,21 +227,6 @@ func TestProcessLeavesTriple(t *testing.T) {
 		t.Skip("no x3 kernel on this platform")
 	}
 	checkLeafCVs(t, "", input, got[:], 3)
-}
-
-func BenchmarkProcessLeavesTriple(b *testing.B) {
-	input := make([]byte, 3*ChunkSize)
-	for i := range input {
-		input[i] = byte(i)
-	}
-	var cvs [256]byte
-	if !tryProcessLeavesTripleArch(input, &cvs) {
-		b.Skip("no x3 kernel on this platform")
-	}
-	b.SetBytes(3 * ChunkSize)
-	for b.Loop() {
-		tryProcessLeavesTripleArch(input, &cvs)
-	}
 }
 
 // TestProcessLeavesTail checks the trailing-leaves+partial kernel against the
@@ -329,25 +283,5 @@ func TestProcessLeavesRun(t *testing.T) {
 		}
 
 		checkLeafCVs(t, fmt.Sprintf("n=%d: ", n), input, got[:], n)
-	}
-}
-
-// BenchmarkLeafBatchRemainder measures processLeafBatch for the leftover-leaf
-// counts that hit the remainder path during finalization.
-func BenchmarkLeafBatchRemainder(b *testing.B) {
-	for _, n := range []int{3, 5, 6, 7, 8, 13} {
-		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
-			input := make([]byte, n*ChunkSize)
-			for i := range input {
-				input[i] = byte(i)
-			}
-			h := New(nil)
-			h.state = stateTree
-			b.SetBytes(int64(n * ChunkSize))
-			for b.Loop() {
-				h.final.reset()
-				h.processLeafBatch(input, n)
-			}
-		})
 	}
 }

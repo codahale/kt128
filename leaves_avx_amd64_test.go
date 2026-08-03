@@ -50,42 +50,6 @@ func TestProcessLeavesPairAVX512(t *testing.T) {
 	checkLeafCVs(t, "", input, got[:], 2)
 }
 
-// BenchmarkPairVsRun compares the narrow XMM pair kernel against the masked
-// 8-wide run kernel at the chunk counts where scheduling must choose.
-func BenchmarkPairVsRun(b *testing.B) {
-	if !cpuid.HasAVX512 {
-		b.Skip("no AVX-512")
-	}
-	input := make([]byte, 8*ChunkSize)
-	for i := range input {
-		input[i] = byte(i)
-	}
-	var cvs [256]byte
-
-	b.Run("pair_x2", func(b *testing.B) {
-		b.SetBytes(2 * ChunkSize)
-		for b.Loop() {
-			processLeavesPairAVX512(&input[0], &cvs[0])
-		}
-	})
-	for _, n := range []int{2, 4, 6} {
-		b.Run(fmt.Sprintf("run_n%d", n), func(b *testing.B) {
-			b.SetBytes(int64(n) * ChunkSize)
-			for b.Loop() {
-				processLeavesRunAVX512(&input[0], &cvs[0], uint64(n))
-			}
-		})
-		b.Run(fmt.Sprintf("pairs_n%d", n), func(b *testing.B) {
-			b.SetBytes(int64(n) * ChunkSize)
-			for b.Loop() {
-				for off := 0; off < n*ChunkSize; off += 2 * ChunkSize {
-					processLeavesPairAVX512(&input[off], &cvs[0])
-				}
-			}
-		})
-	}
-}
-
 // TestWriteForceAVX2DirectFlush pins the AVX2 direct-flush shapes: with a
 // four-chunk flush unit, a quad-sized tail left after S_0 fusion flushes
 // straight from the caller's buffer. Output correctness for these shapes is

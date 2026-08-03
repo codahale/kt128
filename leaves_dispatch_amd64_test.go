@@ -168,29 +168,6 @@ func TestWriteS0TailFusionAVX2(t *testing.T) {
 	})
 }
 
-// BenchmarkWriteForceAVX2 measures one-shot hashing with the AVX2 kernels forced
-// (HasAVX512 disabled), so the AVX2 remainder path is exercised on this host.
-func BenchmarkWriteForceAVX2(b *testing.B) {
-	if !cpuid.HasAVX2 {
-		b.Skip("no AVX2")
-	}
-	saved := cpuid.HasAVX512
-	defer func() { cpuid.HasAVX512 = saved }()
-	for _, size := range []int{32 * 1024, 64 * 1024, 256 * 1024, 1024 * 1024} {
-		b.Run(fmt.Sprintf("%d", size), func(b *testing.B) {
-			msg := ptn(size)
-			out := make([]byte, 32)
-			b.SetBytes(int64(size))
-			cpuid.HasAVX512 = false
-			for b.Loop() {
-				h := New(nil)
-				_, _ = h.Write(msg)
-				_, _ = h.Read(out)
-			}
-		})
-	}
-}
-
 // TestAVX2MatchesAVX512 hashes a range of message/customization sizes (clustered
 // around chunk and SIMD-batch boundaries, so every remainder path is exercised)
 // with the AVX2 kernels forced and confirms the output matches the AVX-512

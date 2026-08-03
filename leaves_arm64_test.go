@@ -74,28 +74,3 @@ func TestARM64DirectWriteUsesBatch5(t *testing.T) {
 		t.Fatalf("output = %x, want %x", got, want)
 	}
 }
-
-func BenchmarkARM64TripleVsPairScalar(b *testing.B) {
-	if !cpuid.HasSHA3 {
-		b.Skip("no SHA3 extension")
-	}
-	input := ptn(3 * ChunkSize)
-	var cvs [256]byte
-
-	b.Run("hybrid", func(b *testing.B) {
-		b.SetBytes(3 * ChunkSize)
-		for b.Loop() {
-			tryProcessLeavesTripleArch(input, &cvs)
-		}
-	})
-
-	b.Run("pair_scalar", func(b *testing.B) {
-		b.SetBytes(3 * ChunkSize)
-		for b.Loop() {
-			processLeavesPairARM64(&input[0], &cvs[0])
-			var scalar sponge
-			leafStateX1(input[2*ChunkSize:], &scalar)
-			scalar.squeeze(cvs[64:96])
-		}
-	})
-}
