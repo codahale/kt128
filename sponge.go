@@ -178,7 +178,6 @@ func (s *sponge) squeeze(dst []byte) {
 			var tmp [8]byte
 			binary.LittleEndian.PutUint64(tmp[:], s.a[lane])
 			n := copy(dst, tmp[off:])
-			wipeBytes(tmp[:])
 			s.pos += n
 			dst = dst[n:]
 			continue
@@ -192,7 +191,6 @@ func (s *sponge) squeeze(dst []byte) {
 			var tmp [8]byte
 			binary.LittleEndian.PutUint64(tmp[:], s.a[s.pos>>3])
 			n := copy(dst, tmp[:])
-			wipeBytes(tmp[:])
 			s.pos += n
 			dst = dst[n:]
 		}

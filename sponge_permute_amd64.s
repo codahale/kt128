@@ -8,7 +8,6 @@
 #include "textflag.h"
 #include "keccak_round_scalar_amd64.h"
 #include "keccak_round_avx512_x8_amd64.h"
-#include "wipe_amd64.h"
 
 
 // func p1600(a *State1)
@@ -62,7 +61,6 @@ TEXT ·p1600(SB), $200-8
 	NOTQ 96(DI)
 	NOTQ 136(DI)
 	NOTQ 160(DI)
-	WIPE_STACK_QWORDS(25)
 	RET
 
 // AVX-512 x1 permutation constants (1280 bytes = 20 × 64).

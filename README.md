@@ -11,7 +11,7 @@ arbitrary-length output, customization strings, and optimized tree hashing for l
 - Switches to tree mode once the input exceeds one 8192-byte chunk.
 - Uses optimized assembly on `amd64` and `arm64`.
 - Falls back to pure Go on other targets, or with `-tags purego`.
-- Exposes `Clone`, `Reset`, `Clear`, `ClearWriter`, and `Pos` helpers.
+- Exposes `Clone`, `Reset`, and `Pos` helpers.
 
 ## Requirements
 
@@ -67,6 +67,12 @@ additional output bits as described in RFC 9861 Section 7.
 KT128 is designed to be fast and is not a password-hashing function. Use a purpose-built password-hashing function for
 passwords and other low-entropy secrets.
 
+This package does not perform security-motivated zeroing of hashing state and provides no secure-erasure guarantee.
+`Reset` reinitializes a Hasher for reuse but does not guarantee that previous state is unrecoverable. This matches the
+Go standard library's
+[`crypto/sha256`](https://pkg.go.dev/crypto/sha256) and [`crypto/hkdf`](https://pkg.go.dev/crypto/hkdf) APIs, which expose
+no state-zeroing operation.
+
 ## Customization
 
 Pass the customization string to `New`:
@@ -74,8 +80,6 @@ Pass the customization string to `New`:
 ```go
 custom := []byte("example-domain")
 h := kt128.New(custom)
-clear(custom)
-defer h.Clear()
 
 _, _ = h.Write([]byte("hello, world"))
 
@@ -83,10 +87,8 @@ out := make([]byte, 64)
 _, _ = h.Read(out)
 ```
 
-`New` copies its customization input, so the caller may immediately modify or clear the original slice. `Clone` copies
-the customization again, making each Hasher independently owned. `Hasher.Clear` overwrites the owned customization and
-hashing state, then permanently invalidates that Hasher; it does not affect clones. All subsequent exported methods
-except `Clear` and `BlockSize` panic. `Clear` is idempotent and does not synchronize with other operations on the Hasher.
+`New` copies its customization input, so the caller may immediately modify or reuse the original slice. `Clone` copies
+the customization again, making each Hasher independently owned.
 
 ## Performance Notes
 
@@ -112,12 +114,8 @@ Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AV
 - `Write` absorbs message bytes without retaining the input slice.
 - `Read(dst)` squeezes output into `dst`.
 - `Clone` copies the current hashing state and customization string.
-- `Reset` makes a best effort to zero message-dependent state and resets the hasher for reuse while preserving its
-  customization string.
-- `Clear` makes a best effort to zero hashing state and customization storage, then permanently invalidates the Hasher.
-  It is idempotent; all subsequent exported methods except `Clear` and `BlockSize` panic.
-- `ClearWriter` discards pending data from a `bufio.Writer`, detaches its destination, and makes a best effort to zero
-  its backing buffer.
+- `Reset` reinitializes the hasher for reuse while preserving its customization string; it does not guarantee erasure
+  of the previous hashing state.
 - `RecommendedWriteBufferSize` reports a runtime dispatch-specific buffer size for coalescing small writes into
   parallel leaf batches.
 - `Pos` returns the number of bytes written so far. `Write` panics before the message length would reach 2^64 bytes
@@ -146,21 +144,12 @@ one chunk on scalar implementations. Larger multiples may be used when retaining
 External buffering remains entirely caller managed. A `bufio.Writer` may retain message bytes in its backing array;
 large writes may instead pass directly through to the Hasher. Bytes reported by `w.Buffered()` have not reached the
 Hasher. Call `w.Flush()` before `Read`, `Clone`, or `Pos` when those operations must account for every submitted byte.
-Before `Reset`, either flush pending bytes if they belong to the current message or discard them with `ClearWriter`.
+Before `Reset`, either flush pending bytes if they belong to the current message or reset the writer without flushing
+if they should be discarded.
 The caller owns the writer, its destination, and the sequencing and error handling for `Write` and `Flush`.
 
-`ClearWriter` deliberately discards rather than flushes pending bytes, detaches the destination by resetting the writer
-to `io.Discard`, and makes a best effort to wipe the writer's backing array. It does not clear bytes already flushed to
-the former destination. Clear each Hasher and clone independently after producing their final output:
-
-```go
-kt128.ClearWriter(w)
-h.Clear()
-// Call Clear on each clone as it is retired.
-```
-
-As with any best-effort clearing operation in Go, `Reset`, `Hasher.Clear`, and `ClearWriter` cannot erase
-copies made by the compiler or runtime, data already written elsewhere, or values left in registers.
+Neither resetting a `Hasher` nor resetting a `bufio.Writer` promises to erase its previous contents. The Go compiler
+and runtime may also retain copies in stack slots, registers, or other runtime-managed storage.
 
 ## License
 

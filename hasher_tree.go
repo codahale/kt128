@@ -15,7 +15,6 @@ func (h *Hasher) startTreeMode() {
 // tailBlocks whole rate-blocks into h.leaf.
 func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 	var cvs [256]byte
-	defer wipeBytes(cvs[:])
 	if tailBlocks > 0 {
 		if !tryProcessS0LeavesTailArch(p, n, tailBlocks, &h.final, &h.leaf, &cvs) {
 			return false
@@ -35,7 +34,6 @@ func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 func (h *Hasher) startLeafFused(trailing []byte, n int, tail []byte) bool {
 	nShared := len(tail) / rate
 	var cvs [256]byte
-	defer wipeBytes(cvs[:])
 	if !tryProcessLeavesTailArch(trailing, n, nShared, &cvs, &h.leaf) {
 		return false
 	}

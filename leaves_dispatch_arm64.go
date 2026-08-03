@@ -101,7 +101,6 @@ func tryProcessLeavesTripleArch(input []byte, cvs *[256]byte) bool {
 	processLeaves3ARM64(unsafe.SliceData(input), unsafe.SliceData(input[2*ChunkSize:]), &cvs[0], &scalar.a[0])
 	scalar.absorbAll(input[2*ChunkSize+25*rate:], leafDS)
 	scalar.squeeze(cvs[64:96])
-	scalar.wipe()
 	return true
 }
 

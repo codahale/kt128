@@ -2,10 +2,8 @@ package kt128
 
 // Write absorbs p as message data. It always returns len(p), nil and does not
 // retain p. Write panics after any call to [Hasher.Read], including a zero-length
-// read, if h has been cleared, or if accepting p would bring the message length
-// to 2^64 bytes.
+// read, or if accepting p would bring the message length to 2^64 bytes.
 func (h *Hasher) Write(p []byte) (int, error) {
-	h.checkNotCleared()
 	if h.state == stateFinalized {
 		panic("kt128: Hasher is finalized")
 	}
@@ -114,7 +112,6 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 	idx := 0
 
 	var cvs [256]byte
-	defer wipeBytes(cvs[:])
 
 	// Hybrid pass: drain leaves five at a time where a hybrid scalar/NEON
 	// kernel exists (arm64), covering four leaves at 2-wide NEON throughput
@@ -178,7 +175,6 @@ func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
 		off := idx * ChunkSize
 		leafStateX1(data[off:off+ChunkSize], &s1)
 		h.final.absorbCV(&s1)
-		s1.wipe()
 		idx++
 	}
 }

@@ -4,10 +4,8 @@ import "math/bits"
 
 // Read fills p with output from the XOF and returns len(p), nil. The first call,
 // including a zero-length call, finalizes the message; subsequent calls continue
-// squeezing the same output stream. Read never returns io.EOF and panics if h
-// has been cleared.
+// squeezing the same output stream. Read never returns io.EOF.
 func (h *Hasher) Read(p []byte) (int, error) {
-	h.checkNotCleared()
 	if h.state != stateFinalized {
 		h.finalize()
 		h.state = stateFinalized
