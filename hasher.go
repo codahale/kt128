@@ -1,9 +1,10 @@
 // Package kt128 implements KT128 (KangarooTwelve) as specified in [RFC 9861].
 //
 // KT128 is a tree-hash eXtendable-Output Function (XOF) built on TurboSHAKE128.
-// Create a [Hasher] with [New], absorb the message with [Hasher.Write], then
-// read as much output as needed with [Hasher.Read]. The first Read finalizes
-// the message; subsequent reads continue the same output stream.
+// Hasher implements both [hash.Hash] with a 32-byte digest and [hash.XOF].
+// Create a [Hasher] with [New], absorb the message with [Hasher.Write], then use
+// [Hasher.Sum] or read as much output as needed with [Hasher.Read]. The first
+// Read finalizes the message; subsequent reads continue the same output stream.
 //
 // When the input (the message plus the customization string and its length
 // encoding) exceeds [ChunkSize] bytes, it splits the input into chunks and
@@ -35,6 +36,9 @@ package kt128
 import "hash"
 
 const (
+	// Size is the size in bytes of a Hasher digest returned by Sum.
+	Size = 32
+
 	// ChunkSize is the KT128 chunk size in bytes.
 	ChunkSize = 8192
 
@@ -86,6 +90,11 @@ func (h *Hasher) BlockSize() int {
 	return rate
 }
 
+// Size returns the number of bytes returned by [Hasher.Sum].
+func (h *Hasher) Size() int {
+	return Size
+}
+
 // Pos returns the total number of message bytes accepted by [Hasher.Write]
 // since construction or the last call to [Hasher.Reset]. Write panics before
 // this count would reach 2^64 bytes.
@@ -93,4 +102,8 @@ func (h *Hasher) Pos() uint64 {
 	return h.pos
 }
 
-var _ hash.XOF = (*Hasher)(nil)
+var (
+	_ hash.Cloner = (*Hasher)(nil)
+	_ hash.Hash   = (*Hasher)(nil)
+	_ hash.XOF    = (*Hasher)(nil)
+)

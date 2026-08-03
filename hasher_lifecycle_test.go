@@ -176,7 +176,11 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 			s.m.squeezed += l
 
 		case lcClone:
-			ns := &lcSlot{h: s.h.Clone(), m: s.m.clone()}
+			cloner, err := s.h.Clone()
+			if err != nil {
+				t.Fatalf("step %d: Clone: %v", step, err)
+			}
+			ns := &lcSlot{h: cloner.(*Hasher), m: s.m.clone()}
 			if len(slots) < lcMaxSlots {
 				slots = append(slots, ns)
 			} else {
@@ -203,7 +207,8 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 	// match their model. Cloning avoids disturbing the slot's squeeze position.
 	for k, sl := range slots {
 		var got [32]byte
-		_, _ = sl.h.Clone().Read(got[:])
+		cloner, _ := sl.h.Clone()
+		_, _ = cloner.(*Hasher).Read(got[:])
 		if want := sl.m.outputBytes(); got != want {
 			t.Fatalf("final: slot %d state diverged from model\n got  %x\n want %x", k, got, want)
 		}

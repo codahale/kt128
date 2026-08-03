@@ -107,7 +107,11 @@ func testWritePartialLeafContinuation(t *testing.T) {
 
 			h := New(nil)
 			_, _ = h.Write(msg[:first])
-			clone := h.Clone()
+			cloner, err := h.Clone()
+			if err != nil {
+				t.Fatalf("Clone: %v", err)
+			}
+			clone := cloner.(*Hasher)
 			_, _ = h.Write(msg[first:])
 			got := make([]byte, 32)
 			_, _ = h.Read(got)

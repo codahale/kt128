@@ -16,7 +16,11 @@ func TestClone(t *testing.T) {
 			h := New(nil)
 			_, _ = h.Write(msg)
 
-			clone := h.Clone()
+			cloner, err := h.Clone()
+			if err != nil {
+				t.Fatalf("Clone: %v", err)
+			}
+			clone := cloner.(*Hasher)
 
 			// Finalizing the original must not affect the clone.
 			want := make([]byte, 64)
@@ -35,7 +39,11 @@ func TestClone(t *testing.T) {
 		h := New(nil)
 		_, _ = h.Write(ptn(ChunkSize + 1))
 
-		clone := h.Clone()
+		cloner, err := h.Clone()
+		if err != nil {
+			t.Fatalf("Clone: %v", err)
+		}
+		clone := cloner.(*Hasher)
 
 		// Write more data to the original only.
 		_, _ = h.Write([]byte("extra"))

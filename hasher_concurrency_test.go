@@ -45,7 +45,8 @@ func TestConcurrentCloneIndependence(t *testing.T) {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
-			h := base.Clone()
+			cloner, _ := base.Clone()
+			h := cloner.(*Hasher)
 			_, _ = h.Write(extra[w])
 			out := make([]byte, 64)
 			_, _ = h.Read(out)
@@ -65,7 +66,8 @@ func TestConcurrentCloneIndependence(t *testing.T) {
 	// The source must be untouched by the concurrent clones: reading a fresh clone
 	// of it (so base itself stays unfinalized) still yields the base output.
 	baseOut := make([]byte, 64)
-	_, _ = base.Clone().Read(baseOut)
+	cloner, _ := base.Clone()
+	_, _ = cloner.(*Hasher).Read(baseOut)
 	if want := referenceKT128(baseMsg, custom, 64); !bytes.Equal(baseOut, want) {
 		t.Errorf("source hasher changed after concurrent clones\n got  %x\n want %x", baseOut, want)
 	}
@@ -150,7 +152,8 @@ func TestConcurrentSharedReadOnly(t *testing.T) {
 					return
 				}
 				out := make([]byte, 64)
-				_, _ = h.Clone().Read(out) // read the clone, never h itself
+				cloner, _ := h.Clone()
+				_, _ = cloner.(*Hasher).Read(out) // read the clone, never h itself
 				if !bytes.Equal(out, want) {
 					errs[w] = fmt.Errorf("clone output mismatch")
 					return

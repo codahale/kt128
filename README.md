@@ -7,7 +7,7 @@ arbitrary-length output, customization strings, and optimized tree hashing for l
 
 ## Highlights
 
-- Implements KT128 as a streaming `hash.XOF`.
+- Implements KT128 as a streaming `hash.XOF` and as a `hash.Hash` with a 256-bit digest.
 - Switches to tree mode once the input exceeds one 8192-byte chunk.
 - Uses optimized assembly on `amd64` and `arm64`.
 - Falls back to pure Go on other targets, or with `-tags purego`.
@@ -152,8 +152,9 @@ arm64 SHA3, and one chunk for generic Go.
 - `Sum256(message, customization)` returns a 32-byte hash without retaining either input slice.
 - `New(c)` creates a new hasher with a defensive copy of `c` (pass nil for none).
 - `Write` absorbs message bytes without retaining the input slice.
+- `Sum` appends a 32-byte digest without changing the absorption state. It panics after `Read` finalizes the hasher.
 - `Read(dst)` squeezes output into `dst`.
-- `Clone` copies the current hashing state and customization string.
+- `Clone` implements `hash.Cloner`, returning an independent copy of the current hashing state and customization string.
 - `Reset` reinitializes the hasher for reuse while preserving its customization string; it does not guarantee erasure
   of the previous hashing state.
 - `RecommendedWriteBufferSize` reports a runtime dispatch-specific buffer size for coalescing small writes into
