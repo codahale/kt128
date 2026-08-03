@@ -96,8 +96,7 @@ Once the input (the message plus the customization string and its length encodin
 implementation switches to tree hashing. Leaf compression is processed in parallel:
 
 - `amd64`: 8-wide AVX-512 kernels for whole batches and masked remainders, with 2-wide AVX-512VL kernels where only
-  two lanes are live; AVX2 kernels when AVX-512 is unavailable; generic kernels when neither ISA is available (use
-  `GODEBUG=cpu.avx512f=off` to disable AVX-512 and `GODEBUG=cpu.avx2=off` to disable AVX2)
+  two lanes are live; AVX2 kernels when AVX-512 is unavailable; generic kernels when neither ISA is available
 - `arm64` with the SHA3 extension: a hybrid scalar/NEON kernel that compresses five chunks per pass — four on the
   NEON unit and a fifth woven onto the otherwise-idle scalar pipes — with 2-wide NEON kernels draining remainders;
   generic kernels otherwise
@@ -106,6 +105,47 @@ implementation switches to tree hashing. Leaf compression is processed in parall
 The first chunk and any trailing partial chunk are fused into the parallel passes rather than absorbed serially, so
 throughput holds across ragged message sizes. Representative one-shot throughput at 1 MiB: ~6.6 GB/s on an Apple M4
 Pro and ~6.7 GB/s on Intel Emerald Rapids (~2.2 GB/s on the AVX2 kernels with AVX-512 disabled).
+
+## Assembly Dispatch
+
+The package detects CPU features once during process initialization and selects the fastest supported implementation.
+There is no exported dispatch API and no supported way to force instructions that the host CPU or operating system does
+not report as available.
+
+On `amd64`, leaf hashing and single-sponge operations use separate dispatch ladders:
+
+- Leaf hashing uses AVX-512 when AVX-512, AVX-512F, and AVX-512VL are available; otherwise AVX2; otherwise generic Go.
+- Sponge permutation and absorption use AVX-512 when available; otherwise BMI2 assembly; otherwise generic Go.
+
+On `arm64`, the SHA3 extension gates both the NEON leaf kernels and the assembly sponge implementation. Without SHA3,
+both paths use generic Go. Other architectures always use generic Go.
+
+Go's `GODEBUG=cpu.<feature>=off` settings disable individual runtime-detected features. They affect the entire process,
+not only this package, and cannot enable unsupported features. Common configurations are:
+
+| Configuration | Setting | Result |
+| --- | --- | --- |
+| Disable AVX-512 on `amd64` | `GODEBUG=cpu.avx512f=off` | AVX2 leaves and BMI2 sponge assembly remain available independently. |
+| Force generic Go on `amd64` | `GODEBUG=cpu.avx512f=off,cpu.avx2=off,cpu.bmi2=off` | Disables every assembly dispatch path used by this package. |
+| Force generic Go on `arm64` | `GODEBUG=cpu.sha3=off` | Disables the SHA3-gated leaf and sponge assembly paths. |
+
+For example:
+
+```bash
+GODEBUG=cpu.avx512f=off go test ./...
+GODEBUG=cpu.avx512f=off,cpu.avx2=off,cpu.bmi2=off go test ./...
+GODEBUG=cpu.sha3=off go test ./...
+```
+
+For a build that excludes architecture-specific assembly entirely, use the `purego` build tag:
+
+```bash
+go test -tags purego ./...
+go build -tags purego .
+```
+
+`RecommendedWriteBufferSize` reflects the active leaf dispatch: eight chunks for AVX-512 or AVX2, five chunks for
+arm64 SHA3, and one chunk for generic Go.
 
 ## API Notes
 
