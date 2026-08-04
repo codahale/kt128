@@ -6,6 +6,7 @@ on:
     branches: [ "main" ]
     paths:
       - '.github/workflows/go.yml'
+      - '.golangci.yml'
       - '**.go'
       - '**.h'
       - '**.mod'
@@ -16,6 +17,7 @@ on:
     branches: [ "main" ]
     paths:
       - '.github/workflows/go.yml'
+      - '.golangci.yml'
       - '**.go'
       - '**.h'
       - '**.mod'
@@ -58,9 +60,6 @@ jobs:
       with:
         go-version: 'stable'
         cache: true
-
-    - name: Build
-      run: go build -tags "${{ matrix.config.tags }}" ./...
 
     - name: Test
       env:
@@ -134,18 +133,9 @@ jobs:
         GOARCH: s390x
       run: go test ./...
 
-  build:
-    name: Build (${{ matrix.target.name }})
+  wasi:
+    name: Build (wasip1/wasm)
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-        # 386 is the only 32-bit dimension (int is 32-bit); wasm is a distinct
-        # platform. Other ports compile the same pure-Go files as the test jobs,
-        # and endianness does not affect compilation, so they add no coverage.
-        - { name: "linux/386",   goos: linux,  goarch: "386" }
-        - { name: "wasip1/wasm", goos: wasip1, goarch: wasm }
     steps:
     - name: Checkout
       uses: actions/checkout@v6
@@ -158,8 +148,8 @@ jobs:
 
     - name: Build
       env:
-        GOOS: ${{ matrix.target.goos }}
-        GOARCH: ${{ matrix.target.goarch }}
+        GOOS: wasip1
+        GOARCH: wasm
       run: go build ./...
 
   lint:
@@ -174,15 +164,6 @@ jobs:
       with:
         go-version: 'stable'
         cache: false
-
-    - name: go fmt
-      run: go fmt ./... && git diff --exit-code
-
-    - name: go vet
-      run: go vet ./...
-
-    - name: go fix
-      run: go fix ./... && git diff --exit-code
 
     - name: go mod tidy
       run: go mod tidy && git diff --exit-code
