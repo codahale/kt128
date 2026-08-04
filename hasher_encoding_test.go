@@ -68,8 +68,3 @@ func TestTreeLeafCount(t *testing.T) {
 		}
 	}
 }
-
-// TestWritePartitionInvariance verifies that the output is independent of how the
-// message is split across Write calls, across message and customization sizes
-// that straddle chunk boundaries. This exercises incremental leaf finalization
-// paths far more densely than the RFC vectors.

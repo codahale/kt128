@@ -5,6 +5,10 @@ import (
 	"testing"
 )
 
+// TestWritePartitionInvariance verifies that the output is independent of how the
+// message is split across Write calls, across message and customization sizes
+// that straddle chunk boundaries. This exercises incremental leaf finalization
+// paths far more densely than the RFC vectors.
 func TestWritePartitionInvariance(t *testing.T) {
 	// Sizes clustered around chunk and SIMD-batch boundaries.
 	interesting := []int{
@@ -84,7 +88,3 @@ func TestReadPartitionInvariance(t *testing.T) {
 		}
 	}
 }
-
-// TestWriteFusedS0Leaf checks that the fused S_0+leaf fast path (S_0 and the
-// first leaf arriving in one Write of an untouched Hasher) produces the same
-// output as the incremental path it bypasses.

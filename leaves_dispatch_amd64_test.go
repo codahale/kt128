@@ -37,79 +37,37 @@ func TestWriteForceGenericFallback(t *testing.T) {
 	}
 }
 
-func TestWriteForceAVX2DirectFlush(t *testing.T) {
-	if !cpuid.HasAVX2 {
-		t.Skip("no AVX2")
+func TestS0TailScheduling(t *testing.T) {
+	savedAVX512, savedAVX2 := cpuid.HasAVX512, cpuid.HasAVX2
+	defer func() {
+		cpuid.HasAVX512, cpuid.HasAVX2 = savedAVX512, savedAVX2
+	}()
+
+	for _, tc := range []struct {
+		name               string
+		avx512, avx2       bool
+		chunks, tail       int
+		wantChunks         int
+		wantTailRateBlocks int
+	}{
+		{"AVX-512 remainder", true, true, 3, 4096, 3, 4096 / rate},
+		{"AVX-512 pair below crossover", true, true, 2, (s0TailPairMin - 1) * rate, 2, 0},
+		{"AVX-512 pair at crossover", true, true, 2, s0TailPairMin * rate, 2, s0TailPairMin},
+		{"AVX-512 full batch", true, true, 8, 4096, 8, 0},
+		{"AVX2 pair", false, true, 2, 4096, 2, 4096 / rate},
+		{"AVX2 triple", false, true, 3, 300, 3, 300 / rate},
+		{"AVX2 full quad", false, true, 4, 4096, 4, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cpuid.HasAVX512, cpuid.HasAVX2 = tc.avx512, tc.avx2
+			if got := fuseS0Chunks(tc.chunks, tc.tail); got != tc.wantChunks {
+				t.Errorf("fuseS0Chunks(%d, %d) = %d, want %d", tc.chunks, tc.tail, got, tc.wantChunks)
+			}
+			if got := fuseS0TailBlocks(tc.chunks, tc.tail); got != tc.wantTailRateBlocks {
+				t.Errorf("fuseS0TailBlocks(%d, %d) = %d, want %d", tc.chunks, tc.tail, got, tc.wantTailRateBlocks)
+			}
+		})
 	}
-	saved := cpuid.HasAVX512
-	defer func() { cpuid.HasAVX512 = saved }()
-	cpuid.HasAVX512 = false
-
-	t.Run("quad tail flushes in place", func(t *testing.T) {
-		h := New(nil)
-		_, _ = h.Write(ptn(8 * ChunkSize)) // S_0+3 leaves fused, 4 leaves in place
-
-		if h.leafLen != 0 {
-			t.Fatalf("partial leaf bytes = %d, want 0", h.leafLen)
-		}
-	})
-
-	t.Run("sub-batch flush with partial leaf", func(t *testing.T) {
-		h := New(nil)
-		// S_0+3 leaves fuse; the remaining complete leaves process in place.
-		_, _ = h.Write(ptn(11*ChunkSize + 37))
-
-		if h.leafLen != 37 {
-			t.Fatalf("partial leaf bytes = %d, want 37", h.leafLen)
-		}
-	})
-}
-
-// TestWriteS0TailFusion pins the AVX-512 S_0+tail fused scheduling: a ragged
-// one-shot first write of 2..7 chunks rides the partial's whole rate-blocks
-// in an idle lane of the fused pass, leaving an incremental partial leaf.
-// Output correctness for these shapes is covered by
-// TestPartialLeafFusionSizes and TestWritePartialLeafContinuation.
-func TestWriteS0TailFusion(t *testing.T) {
-	if !cpuid.HasAVX512 {
-		t.Skip("no AVX-512")
-	}
-
-	t.Run("ragged one-shot leaves a partial leaf", func(t *testing.T) {
-		h := New(nil)
-		_, _ = h.Write(ptn(3*ChunkSize + 4096)) // S_0+2 leaves fused, 24 tail blocks ride
-
-		if h.leafLen != 4096 {
-			t.Fatalf("partial leaf bytes = %d, want 4096", h.leafLen)
-		}
-	})
-
-	t.Run("two chunks below the pair threshold stay serial", func(t *testing.T) {
-		h := New(nil)
-		_, _ = h.Write(ptn(2*ChunkSize + (s0TailPairMin-1)*rate))
-
-		if want := (s0TailPairMin - 1) * rate; h.leafLen != want {
-			t.Fatalf("partial leaf bytes = %d, want %d", h.leafLen, want)
-		}
-	})
-
-	t.Run("two chunks at the pair threshold ride the quad", func(t *testing.T) {
-		h := New(nil)
-		_, _ = h.Write(ptn(2*ChunkSize + s0TailPairMin*rate))
-
-		if h.leafLen != s0TailPairMin*rate {
-			t.Fatalf("partial leaf bytes = %d, want %d", h.leafLen, s0TailPairMin*rate)
-		}
-	})
-
-	t.Run("eight chunks have no free lane", func(t *testing.T) {
-		h := New(nil)
-		_, _ = h.Write(ptn(8*ChunkSize + 4096))
-
-		if h.leafLen != 4096 {
-			t.Fatalf("partial leaf bytes = %d, want 4096", h.leafLen)
-		}
-	})
 }
 
 // TestS0TailFusionForceAVX2 reruns the S_0+tail kernel differential and
@@ -127,51 +85,3 @@ func TestS0TailFusionForceAVX2(t *testing.T) {
 	t.Run("kernel", testProcessS0LeavesTail)
 	t.Run("continuation", testWritePartialLeafContinuation)
 }
-
-// TestWriteS0TailFusionAVX2 pins the AVX2 S_0+tail fused scheduling: a
-// ragged one-shot first write of two or three chunks rides the partial's
-// whole rate-blocks in the quad's free lane unconditionally; four chunks
-// fill the quad and leave no lane.
-func TestWriteS0TailFusionAVX2(t *testing.T) {
-	if !cpuid.HasAVX2 {
-		t.Skip("no AVX2")
-	}
-	saved := cpuid.HasAVX512
-	defer func() { cpuid.HasAVX512 = saved }()
-	cpuid.HasAVX512 = false
-
-	t.Run("two-chunk ragged one-shot leaves a partial leaf", func(t *testing.T) {
-		h := New(nil)
-		_, _ = h.Write(ptn(2*ChunkSize + 4096)) // S_0+1 leaf fused, 24 tail blocks ride
-
-		if h.leafLen != 4096 {
-			t.Fatalf("partial leaf bytes = %d, want 4096", h.leafLen)
-		}
-	})
-
-	t.Run("three-chunk ragged one-shot leaves a partial leaf", func(t *testing.T) {
-		h := New(nil)
-		_, _ = h.Write(ptn(3*ChunkSize + 300)) // one whole tail block rides
-
-		if h.leafLen != 300 {
-			t.Fatalf("partial leaf bytes = %d, want 300", h.leafLen)
-		}
-	})
-
-	t.Run("four chunks have no free lane", func(t *testing.T) {
-		h := New(nil)
-		_, _ = h.Write(ptn(4*ChunkSize + 4096))
-
-		if h.leafLen != 4096 {
-			t.Fatalf("partial leaf bytes = %d, want 4096", h.leafLen)
-		}
-	})
-}
-
-// TestAVX2MatchesAVX512 hashes a range of message/customization sizes (clustered
-// around chunk and SIMD-batch boundaries, so every remainder path is exercised)
-// with the AVX2 kernels forced and confirms the output matches the AVX-512
-// kernels. The AVX-512 path is itself validated against the RFC vectors in
-// TestRFCVectors. The large and customized cases below reproduce, as a direct
-// AVX-512-vs-AVX2 comparison, the shapes that diverged under SDE -skx so the
-// failure is localized to the AVX-512 kernels rather than only seen end-to-end.

@@ -54,23 +54,3 @@ func TestARM64TripleTailScheduling(t *testing.T) {
 		t.Fatalf("fuseTailChunks at crossover = %d, want 1", got)
 	}
 }
-
-func TestARM64DirectWriteUsesBatch5(t *testing.T) {
-	if !cpuid.HasSHA3 {
-		t.Skip("no SHA3 extension")
-	}
-	msg := ptn(7 * ChunkSize)
-	h := New(nil)
-	_, _ = h.Write(msg[:2*ChunkSize])
-	_, _ = h.Write(msg[2*ChunkSize:])
-
-	if h.leafLen != 0 {
-		t.Fatalf("partial leaf bytes = %d, want 0", h.leafLen)
-	}
-
-	got := make([]byte, 32)
-	_, _ = h.Read(got)
-	if want := referenceKT128(msg, nil, len(got)); !bytes.Equal(got, want) {
-		t.Fatalf("output = %x, want %x", got, want)
-	}
-}

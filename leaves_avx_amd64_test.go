@@ -50,12 +50,13 @@ func TestProcessLeavesPairAVX512(t *testing.T) {
 	checkLeafCVs(t, "", input, got[:], 2)
 }
 
-// TestWriteForceAVX2DirectFlush pins the AVX2 direct-flush shapes: with a
-// four-chunk flush unit, a quad-sized tail left after S_0 fusion flushes
-// straight from the caller's buffer. Output correctness for these shapes is
-// covered by
-// TestAVX2MatchesAVX512; this test asserts the scheduling itself.
-
+// TestAVX2MatchesAVX512 hashes a range of message/customization sizes (clustered
+// around chunk and SIMD-batch boundaries, so every remainder path is exercised)
+// with the AVX2 kernels forced and confirms the output matches the AVX-512
+// kernels. The AVX-512 path is itself validated against the RFC vectors in
+// TestRFCVectors. The large and customized cases below reproduce, as a direct
+// AVX-512-vs-AVX2 comparison, the shapes that diverged under SDE -skx so the
+// failure is localized to the AVX-512 kernels rather than only seen end-to-end.
 func TestAVX2MatchesAVX512(t *testing.T) {
 	if !cpuid.HasAVX512 {
 		t.Skip("no AVX-512 available to compare against")

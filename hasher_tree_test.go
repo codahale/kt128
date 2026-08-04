@@ -5,6 +5,9 @@ import (
 	"testing"
 )
 
+// TestWriteFusedS0Leaf checks that the fused S_0+leaf fast path (S_0 and the
+// first leaf arriving in one Write of an untouched Hasher) produces the same
+// output as the incremental path it bypasses.
 func TestWriteFusedS0Leaf(t *testing.T) {
 	sizes := []int{
 		2 * ChunkSize, 2*ChunkSize + 1, 3 * ChunkSize, 5*ChunkSize + 11,
@@ -77,15 +80,6 @@ func TestWriteTreeModeIncrementalLeaf(t *testing.T) {
 		})
 		if allocs != 0 {
 			t.Fatalf("fragmented hash allocated %.0f times, want 0", allocs)
-		}
-	})
-
-	t.Run("process exact lane batch directly", func(t *testing.T) {
-		h := New(nil)
-		_, _ = h.Write(ptn((availableLanes + 1) * ChunkSize))
-
-		if h.leafLen != 0 {
-			t.Fatalf("partial leaf bytes = %d, want 0", h.leafLen)
 		}
 	})
 

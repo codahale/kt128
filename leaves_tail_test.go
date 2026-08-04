@@ -6,6 +6,9 @@ import (
 	"testing"
 )
 
+// TestProcessLeavesTail checks the trailing-leaves+partial kernel against the
+// x1 leaf path across lane counts and head lengths spanning rate-block
+// boundaries. arm64 hosts exactly n == 1; AVX-512 hosts n in 1..7.
 func TestProcessLeavesTail(t *testing.T) {
 	suffix := []byte{0xA5, 0x5A, 0x03}
 	ran := false
@@ -129,11 +132,12 @@ func testWritePartialLeafContinuation(t *testing.T) {
 	}
 }
 
-// TestProcessS0Leaves checks the fused S_0+leaves kernel against the x1 paths
-// for every chunk count: the final-node state must match absorbing
-// S_0 || kt12 marker into a fresh sponge, and each chain value must match the
-// x1 leaf path.
-
+// TestProcessS0LeavesTail checks the fused S_0+leaves+partial kernel against
+// the serial paths across chunk counts and tail lengths spanning rate-block
+// boundaries: the final-node state must match absorbing S_0 || kt12 marker,
+// each complete leaf's CV must match the x1 path, and continuing the exported
+// partial state must match a direct sponge over the full tail. The body is a
+// helper so the amd64 tests can rerun it with the AVX2 kernels forced.
 func TestProcessS0LeavesTail(t *testing.T) { testProcessS0LeavesTail(t) }
 
 func testProcessS0LeavesTail(t *testing.T) {
@@ -183,6 +187,3 @@ func testProcessS0LeavesTail(t *testing.T) {
 		t.Skip("no fused S0+leaves+partial kernel on this platform")
 	}
 }
-
-// TestProcessLeavesRun checks the direct-read run kernel against the x1 leaf
-// path for every remainder size it handles.
