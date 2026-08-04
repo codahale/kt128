@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+repo_root=$(git rev-parse --show-toplevel)
+
+while IFS=' ' read -r _ local_sha _ _; do
+  if [[ "$local_sha" =~ ^0+$ ]]; then
+    continue
+  fi
+
+  commit=$(git rev-parse --verify "${local_sha}^{commit}" 2>/dev/null) || continue
+  check_dir=$(mktemp -d "${TMPDIR:-/tmp}/kt128-pre-push.XXXXXX")
+  trap 'rm -rf -- "$check_dir"' EXIT
+
+  echo "Checking ${commit:0:12} before push"
+  git -C "$repo_root" archive "$commit" | tar -x -C "$check_dir"
+  cd "$check_dir"
+  checker="$check_dir/script/check-push"
+  if [[ ! -x "$checker" ]]; then
+    checker="$repo_root/script/check-push"
+  fi
+  "$checker"
+
+  cd "$repo_root"
+  rm -rf -- "$check_dir"
+  trap - EXIT
+done

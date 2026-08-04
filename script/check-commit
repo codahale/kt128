@@ -1,0 +1,24 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+require_tool() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "required tool not found: $1" >&2
+    exit 127
+  fi
+}
+
+require_tool actionlint
+require_tool go
+require_tool golangci-lint
+
+shopt -s nullglob
+workflow_files=(.github/workflows/*.yml .github/workflows/*.yaml)
+if ((${#workflow_files[@]} > 0)); then
+  actionlint "${workflow_files[@]}"
+fi
+
+golangci-lint config verify
+golangci-lint fmt --diff
+go mod tidy -diff

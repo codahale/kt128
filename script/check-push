@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+"$script_dir/check-commit"
+
+golangci-lint run ./...
+go test -race ./...
+go test -tags purego ./...
+
+case "$(go env GOARCH)" in
+  amd64)
+    KT128_EXPECT_AVX512=0 \
+      KT128_EXPECT_AVX2=0 \
+      GODEBUG=cpu.avx2=off,cpu.avx512f=off \
+      go test -race ./...
+    ;;
+  arm64)
+    KT128_EXPECT_SHA3=0 \
+      GODEBUG=cpu.sha3=off \
+      go test -race ./...
+    ;;
+esac
+
+GOOS=wasip1 GOARCH=wasm go build ./...

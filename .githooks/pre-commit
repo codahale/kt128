@@ -1,0 +1,17 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+repo_root=$(git rev-parse --show-toplevel)
+check_dir=$(mktemp -d "${TMPDIR:-/tmp}/kt128-pre-commit.XXXXXX")
+trap 'rm -rf -- "$check_dir"' EXIT
+
+# Check the index rather than the working tree so partially staged files cannot
+# make the hook validate content that is not part of the commit.
+git -C "$repo_root" checkout-index --all --prefix="$check_dir/"
+cd "$check_dir"
+checker="$check_dir/script/check-commit"
+if [[ ! -x "$checker" ]]; then
+  checker="$repo_root/script/check-commit"
+fi
+"$checker"
