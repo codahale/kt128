@@ -13,11 +13,17 @@ func (h *Hasher) Sum(b []byte) []byte {
 	return append(b, sum[:]...)
 }
 
-// Sum256 returns the 32-byte KT128 hash of message using customization as the
-// customization string. Sum256 does not retain or modify either input slice.
-func Sum256(message, customization []byte) (sum [Size]byte) {
+// Sum returns outputLen bytes of the KT128 hash of message using customization
+// as the customization string. Sum does not retain or modify either input
+// slice. Sum panics if outputLen is negative.
+func Sum(message, customization []byte, outputLen int) []byte {
+	if outputLen < 0 {
+		panic("kt128: negative output length")
+	}
+
+	sum := make([]byte, outputLen)
 	h := New(customization)
 	_, _ = h.Write(message)
-	_, _ = h.Read(sum[:])
+	_, _ = h.Read(sum)
 	return sum
 }

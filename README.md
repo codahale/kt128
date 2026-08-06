@@ -26,10 +26,10 @@ go get github.com/codahale/kt128
 
 ## Basic Usage
 
-For the common 32-byte output:
+For one-shot hashing with a 32-byte output:
 
 ```go
-sum := kt128.Sum256([]byte("hello, world"), nil)
+sum := kt128.Sum([]byte("hello, world"), nil, 32)
 fmt.Printf("%x\n", sum)
 ```
 
@@ -169,10 +169,12 @@ arm64 SHA3, and one chunk for generic Go.
 
 ## API Notes
 
-- `Sum256(message, customization)` returns a 32-byte hash without retaining either input slice.
+- `Sum(message, customization, outputLen)` returns the requested number of hash bytes without retaining either input
+  slice. It panics if `outputLen` is negative.
 - `New(c)` creates a new hasher with a defensive copy of `c` (pass nil for none).
 - `Write` absorbs message bytes without retaining the input slice.
-- `Sum` appends a 32-byte digest without changing the absorption state. It panics after `Read` finalizes the hasher.
+- `(*Hasher).Sum` appends a 32-byte digest without changing the absorption state. It panics after `Read` finalizes the
+  hasher.
 - `Read(dst)` finalizes the hasher and squeezes output into `dst`; subsequent reads continue the output stream.
 - `Clone() (hash.Cloner, error)` returns an independent copy at the current absorption or squeeze position, including
   an independent copy of the customization string. The dynamic result is a `*Hasher`, and the error is always `nil`.

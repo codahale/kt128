@@ -65,54 +65,61 @@ func TestHasherSize(t *testing.T) {
 	}
 }
 
-func TestSum256(t *testing.T) {
+func TestSum(t *testing.T) {
 	tests := []struct {
 		messageLen int
 		custom     []byte
+		outputLen  int
 	}{
-		{messageLen: 0},
-		{messageLen: 1},
-		{messageLen: ChunkSize - 1},
-		{messageLen: ChunkSize},
-		{messageLen: ChunkSize + 1},
-		{messageLen: 9 * ChunkSize},
-		{messageLen: ChunkSize - 4, custom: []byte("domain")},
-		{messageLen: ChunkSize, custom: ptn(41)},
+		{messageLen: 0, outputLen: 0},
+		{messageLen: 1, outputLen: 1},
+		{messageLen: ChunkSize - 1, outputLen: 16},
+		{messageLen: ChunkSize, outputLen: 32},
+		{messageLen: ChunkSize + 1, outputLen: 64},
+		{messageLen: 9 * ChunkSize, outputLen: 257},
+		{messageLen: ChunkSize - 4, custom: []byte("domain"), outputLen: 32},
+		{messageLen: ChunkSize, custom: ptn(41), outputLen: 64},
 	}
 
 	for _, tc := range tests {
-		name := fmt.Sprintf("message=%d/custom=%d", tc.messageLen, len(tc.custom))
+		name := fmt.Sprintf("message=%d/custom=%d/output=%d", tc.messageLen, len(tc.custom), tc.outputLen)
 		t.Run(name, func(t *testing.T) {
 			message := ptn(tc.messageLen)
-			want := referenceKT128(message, tc.custom, 32)
-			got := Sum256(message, tc.custom)
-			if !bytes.Equal(got[:], want) {
-				t.Fatalf("Sum256() = %x, want %x", got, want)
+			want := referenceKT128(message, tc.custom, tc.outputLen)
+			got := Sum(message, tc.custom, tc.outputLen)
+			if !bytes.Equal(got, want) {
+				t.Fatalf("Sum() = %x, want %x", got, want)
 			}
 		})
 	}
 }
 
-func TestSum256DoesNotModifyInputs(t *testing.T) {
+func TestSumDoesNotModifyInputs(t *testing.T) {
 	message := ptn(ChunkSize + 1)
 	customization := ptn(41)
 	wantMessage := bytes.Clone(message)
 	wantCustomization := bytes.Clone(customization)
 
-	_ = Sum256(message, customization)
+	_ = Sum(message, customization, 32)
 
 	if !bytes.Equal(message, wantMessage) {
-		t.Fatal("Sum256 modified its message input")
+		t.Fatal("Sum modified its message input")
 	}
 	if !bytes.Equal(customization, wantCustomization) {
-		t.Fatal("Sum256 modified its customization input")
+		t.Fatal("Sum modified its customization input")
 	}
 }
 
-func TestSum256RFCVector(t *testing.T) {
+func TestSumPanicsWithNegativeOutputLength(t *testing.T) {
+	mustPanic(t, "kt128: negative output length", func() {
+		Sum(nil, nil, -1)
+	})
+}
+
+func TestSumRFCVector(t *testing.T) {
 	want := mustHex("1AC2D450FC3B4205D19DA7BFCA1B37513C0803577AC7167F06FE2CE1F0EF39E5")
-	got := Sum256(nil, nil)
-	if !bytes.Equal(got[:], want) {
-		t.Fatalf("Sum256(nil, nil) = %x, want %x", got, want)
+	got := Sum(nil, nil, 32)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("Sum(nil, nil, 32) = %x, want %x", got, want)
 	}
 }
