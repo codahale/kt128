@@ -128,7 +128,8 @@ not report as available.
 
 On `amd64`, leaf hashing and single-sponge operations use separate dispatch ladders:
 
-- Leaf hashing uses AVX-512 when AVX-512, AVX-512F, and AVX-512VL are available; otherwise AVX2; otherwise generic Go.
+- Leaf hashing uses AVX-512 when AVX-512, AVX-512F, AVX-512VL, and AVX-512DQ are available; otherwise AVX2; otherwise
+  generic Go.
 - Sponge permutation and absorption use AVX-512 when available; otherwise BMI2 assembly; otherwise generic Go.
 
 On `arm64`, the SHA3 extension gates both the NEON leaf kernels and the assembly sponge implementation. Without SHA3,
