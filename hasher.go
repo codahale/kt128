@@ -81,9 +81,17 @@ type Hasher struct {
 	state   uint8  // absorbing or finalized
 }
 
-// New returns a new Hasher using c as the KT128 customization string. New
-// copies c; the caller may modify or clear c immediately after this function
-// returns. Pass nil for no customization.
+// New returns a new Hasher using c as the optional KT128 customization string.
+// The customization string need not be secret and commonly provides domain
+// separation. It may contain a secret key, in which case the KT128
+// result is a message authentication code; see [RFC 9861, Section 4] and
+// [RFC 9861, Section 7].
+//
+// New copies c; the caller may modify or clear c immediately after New returns.
+// Pass nil for no customization.
+//
+// [RFC 9861, Section 4]: https://www.rfc-editor.org/rfc/rfc9861.html#section-4
+// [RFC 9861, Section 7]: https://www.rfc-editor.org/rfc/rfc9861.html#section-7
 func New(c []byte) *Hasher {
 	return &Hasher{c: append([]byte(nil), c...)}
 }
