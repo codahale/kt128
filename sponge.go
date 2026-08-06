@@ -115,6 +115,9 @@ func (s *sponge) absorbCVs(cvs []byte) {
 		)
 		cvs = cvs[32:]
 	}
+	if len(cvs) > 0 {
+		panic("kt128: absorbCVs input length is not a multiple of 32")
+	}
 }
 
 func (s *sponge) absorbCVlanes(w0, w1, w2, w3 uint64) {

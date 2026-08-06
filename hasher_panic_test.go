@@ -69,4 +69,11 @@ func TestPanics(t *testing.T) {
 			s.absorbCVs(make([]byte, 32))
 		})
 	})
+
+	t.Run("absorbCVs with partial CV", func(t *testing.T) {
+		var s sponge
+		mustPanic(t, "kt128: absorbCVs input length is not a multiple of 32", func() {
+			s.absorbCVs(make([]byte, 33))
+		})
+	})
 }
