@@ -83,6 +83,9 @@ func (s *sponge) absorb(data []byte) {
 		if s.pos == rate {
 			s.permute12()
 			s.pos = 0
+			if len(data) >= rate {
+				data = data[s.fastLoopAbsorb168(data):]
+			}
 		}
 	}
 
