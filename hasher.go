@@ -96,9 +96,7 @@ func New(c []byte) *Hasher {
 	return &Hasher{c: append([]byte(nil), c...)}
 }
 
-// BlockSize returns the 168-byte TurboSHAKE128 sponge rate. Write accepts inputs
-// of any length; calls containing multiple complete chunks can use parallel leaf
-// processing.
+// BlockSize returns the 168-byte TurboSHAKE128 sponge rate.
 func (h *Hasher) BlockSize() int {
 	return rate
 }

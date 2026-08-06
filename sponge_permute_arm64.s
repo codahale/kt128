@@ -7,7 +7,7 @@
 #include "textflag.h"
 #include "keccak_round_neon_x2_arm64.h"
 
-// func p1600(a *State1)
+// func p1600(a *sponge)
 TEXT ·p1600(SB), $200-8
 	MOVD	a+0(FP), R0
 	MOVD	$kt128_round_consts(SB), R1

@@ -62,7 +62,3 @@ func leafStateX1(data []byte, s *sponge) {
 	s.reset()
 	s.absorbAll(data, leafDS)
 }
-
-// lengthEncode encodes x as in KangarooTwelve (RFC 9861 Section 2.3.1):
-// big-endian with no leading zeros, followed by a byte giving the length
-// of the encoding. The result is appended to buf and returned as a slice.

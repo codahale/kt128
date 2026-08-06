@@ -9,7 +9,7 @@
 #include "keccak_round_avx2_x4_amd64.h"
 #include "keccak_round_avx512_x8_amd64.h"
 
-// func fastLoopAbsorb168x1(s *State1, in *byte, n int)
+// func fastLoopAbsorb168x1(s *sponge, in *byte, n int)
 //
 // Fused absorb-permute loop for scalar Keccak.
 // Keeps state in DI between iterations.
@@ -118,10 +118,10 @@ done_x1:
 	MOVQ	i*8(DI), R10; \
 	MOVQ	R10, i*8(BX)
 
-// fastLoopAbsorb168x1AVX512 absorbs full 168-byte blocks into State1 using
+// fastLoopAbsorb168x1AVX512 absorbs full 168-byte blocks into a sponge using
 // AVX-512. State is kept in ZMM registers across absorb+permute iterations.
 //
-// func fastLoopAbsorb168x1AVX512(s *State1, in *byte, n int)
+// func fastLoopAbsorb168x1AVX512(s *sponge, in *byte, n int)
 TEXT ·fastLoopAbsorb168x1AVX512(SB), NOSPLIT, $0-24
 	MOVQ	s+0(FP), DI
 	MOVQ	in+8(FP), SI

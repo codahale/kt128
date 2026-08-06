@@ -10,7 +10,7 @@
 #include "keccak_round_avx512_x8_amd64.h"
 
 
-// func p1600(a *State1)
+// func p1600(a *sponge)
 TEXT ·p1600(SB), $200-8
 	MOVQ a+0(FP), DI
 
@@ -64,7 +64,7 @@ TEXT ·p1600(SB), $200-8
 	RET
 
 // AVX-512 x1 permutation constants (1280 bytes = 20 × 64).
-// Layout documented in keccak_amd64_avx512.h.
+// Layout documented in keccak_round_avx512_x8_amd64.h.
 
 // theta_perm[0]: identity (not loaded, but occupies space)
 DATA	kt128_avx512_x1_consts+0x000(SB)/8, $0
@@ -285,7 +285,7 @@ DATA	kt128_avx512_x1_iotas+0xF8(SB)/8, $0
 GLOBL	kt128_avx512_x1_iotas(SB), NOPTR|RODATA, $256
 
 
-// func p1600AVX512(a *State1)
+// func p1600AVX512(a *sponge)
 //
 // AVX-512 x1 Keccak-p[1600,12] permutation using Andy Polyakov's CRYPTOGAMS
 // approach: state in 5 ZMM registers, alternating even/odd round layouts.

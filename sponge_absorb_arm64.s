@@ -152,7 +152,7 @@
 
 	RET
 
-// func fastLoopAbsorb168x1(s *State1, in *byte, n int)
+// func fastLoopAbsorb168x1(s *sponge, in *byte, n int)
 TEXT ·fastLoopAbsorb168x1(SB), NOSPLIT, $0-24
 	MOVD	s+0(FP), R0
 	MOVD	in+8(FP), R2
