@@ -86,6 +86,11 @@ Go standard library's
 [`crypto/sha256`](https://pkg.go.dev/crypto/sha256) and [`crypto/hkdf`](https://pkg.go.dev/crypto/hkdf) APIs, which expose
 no state-zeroing operation.
 
+The binary state returned by `MarshalBinary` or `AppendBinary` contains the customization string and resumable internal
+hash state. The encoding provides neither confidentiality nor authenticity; protect and authenticate it externally
+when either property is required. `UnmarshalBinary` validates the format and all derivable state invariants, but cannot
+establish that otherwise valid sponge lanes originated from a particular message.
+
 ## Customization
 
 Pass the customization string to `New`:
@@ -171,6 +176,8 @@ arm64 SHA3, and one chunk for generic Go.
 - `Read(dst)` finalizes the hasher and squeezes output into `dst`; subsequent reads continue the output stream.
 - `Clone() (hash.Cloner, error)` returns an independent copy at the current absorption or squeeze position, including
   an independent copy of the customization string. The dynamic result is a `*Hasher`, and the error is always `nil`.
+- `MarshalBinary`, `AppendBinary`, and `UnmarshalBinary` persist and restore the complete state at any absorption or
+  squeeze position, including the customization string. Failed unmarshaling leaves the receiver unchanged.
 - `Reset` reinitializes the hasher for reuse while preserving its customization string; it does not guarantee erasure
   of the previous hashing state.
 - `RecommendedWriteBufferSize` reports a runtime dispatch-specific buffer size for coalescing small writes into
@@ -179,6 +186,26 @@ arm64 SHA3, and one chunk for generic Go.
   without an intervening `Reset`.
 - `Size` and `Hasher.Size()` report the 32-byte fixed digest size. `Hasher.BlockSize()` reports the 168-byte
   TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.
+
+### Binary State Format
+
+The binary state format is stable across package releases. Version 1 has this layout:
+
+| Offset | Size | Field |
+| ---: | ---: | --- |
+| 0 | 5 | ASCII identifier `kt128` |
+| 5 | 1 | Format version, `1` |
+| 6 | 1 | Lifecycle: `0` single-node absorption, `1` tree absorption, `2` finalized |
+| 7 | 8 | Message position, unsigned big endian |
+| 15 | 8 | Customization length, unsigned big endian |
+| 23 | 200 | Final-node Keccak lanes, 25 unsigned little-endian 64-bit words |
+| 223 | 1 | Final-node sponge position |
+| 224 | 200 | Leaf Keccak lanes, 25 unsigned little-endian 64-bit words |
+| 424 | 1 | Leaf sponge position |
+| 425 | variable | Customization bytes |
+
+The encoding is canonical: its total size must equal 425 plus the encoded customization length, and lifecycle-specific
+positions and inactive leaf state must agree with the message position.
 
 ## Ownership and Buffering
 

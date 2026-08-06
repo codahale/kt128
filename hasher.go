@@ -30,6 +30,9 @@
 // Go standard library's [crypto/sha256] and [crypto/hkdf] APIs, which expose no
 // state-zeroing operation.
 //
+// A Hasher's binary encoding contains its customization string and resumable
+// internal state. It provides neither confidentiality nor authenticity.
+//
 // [RFC 9861]: https://www.rfc-editor.org/rfc/rfc9861.html
 package kt128
 
@@ -65,7 +68,9 @@ func (*noCopy) Unlock() {}
 // input or output slices.
 //
 // A Hasher must not be copied after first use. Use [Hasher.Clone] to create an
-// independent copy. A Hasher is not safe for concurrent mutation.
+// independent copy. Its state can also be persisted at any absorption or
+// squeeze position through encoding.BinaryMarshaler, encoding.BinaryAppender,
+// and encoding.BinaryUnmarshaler. A Hasher is not safe for concurrent mutation.
 type Hasher struct {
 	noCopy  noCopy
 	c       []byte
