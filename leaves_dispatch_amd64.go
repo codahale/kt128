@@ -131,13 +131,19 @@ func fuseTailChunks(nFull, nShared int) int {
 
 // Every try wrapper returns false without modifying its output arguments when
 // the requested kernel is unavailable or does not support the requested shape.
+// Immediately before entering assembly, each wrapper asserts that the input
+// covers the kernel's documented read footprint — and, for the tail variants,
+// that nShared is within the kernels' stripe bound — so a scheduling
+// miscalculation panics instead of reading out of bounds.
 
 func tryProcessLeavesX8Arch(input []byte, cvs *[256]byte) bool {
 	if cpuid.HasAVX512 {
+		_ = input[8*ChunkSize-1]
 		processLeavesAVX512(unsafe.SliceData(input), &cvs[0])
 		return true
 	}
 	if cpuid.HasAVX2 {
+		_ = input[8*ChunkSize-1]
 		processLeavesAVX2(unsafe.SliceData(input), &cvs[0])
 		return true
 	}
@@ -154,6 +160,7 @@ func tryProcessLeavesPairArch(input []byte, cvs *[256]byte) bool {
 	if !cpuid.HasAVX512 {
 		return false
 	}
+	_ = input[2*ChunkSize-1]
 	processLeavesPairAVX512(unsafe.SliceData(input), &cvs[0])
 	return true
 }
@@ -168,6 +175,7 @@ func tryProcessLeavesRunArch(data []byte, n int, cvs *[256]byte) bool {
 		return false
 	}
 	if cpuid.HasAVX512 {
+		_ = data[n*ChunkSize-1]
 		if n <= 4 {
 			processLeavesQuadAVX512(unsafe.SliceData(data), &cvs[0], uint64(n))
 		} else {
@@ -178,6 +186,7 @@ func tryProcessLeavesRunArch(data []byte, n int, cvs *[256]byte) bool {
 	if !cpuid.HasAVX2 {
 		return false
 	}
+	_ = data[n*ChunkSize-1]
 
 	// AVX2: run x4 passes, pointing dummy lanes at an in-bounds chunk. The first
 	// pass covers leaves 0..3, the second (only when n > 4) covers 4..n-1. CVs
@@ -210,20 +219,23 @@ func tryProcessS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) 
 	case n < 2:
 		return false
 	case cpuid.HasAVX512:
+		if n > 8 {
+			return false
+		}
+		_ = input[n*ChunkSize-1]
 		switch {
 		case n == 2:
 			processS0LeafPairAVX512(unsafe.SliceData(input), &final.a[0], &cvs[32])
 		case n <= 4:
 			processS0LeavesQuadAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
-		case n <= 8:
-			processS0LeavesAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
 		default:
-			return false
+			processS0LeavesAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
 		}
 	case cpuid.HasAVX2:
 		if n > 4 {
 			return false
 		}
+		_ = input[n*ChunkSize-1]
 		processS0LeavesQuadAVX2(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n))
 	default:
 		return false
@@ -246,17 +258,26 @@ func tryProcessS0LeavesTailArch(input []byte, n, nShared int, final, partial *sp
 	case n < 2:
 		return false
 	case cpuid.HasAVX512:
+		if n > 7 {
+			return false
+		}
+		if uint(nShared) > ChunkSize/rate {
+			panic("kt128: nShared exceeds kernel stripe bound")
+		}
+		_ = input[n*ChunkSize+nShared*rate-1]
 		if n <= 3 {
 			processS0LeavesQuadTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
-		} else if n <= 7 {
-			processS0LeavesTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
 		} else {
-			return false
+			processS0LeavesTailAVX512(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
 		}
 	case cpuid.HasAVX2:
 		if n > 3 {
 			return false
 		}
+		if uint(nShared) > ChunkSize/rate {
+			panic("kt128: nShared exceeds kernel stripe bound")
+		}
+		_ = input[n*ChunkSize+nShared*rate-1]
 		processS0LeavesQuadTailAVX2(unsafe.SliceData(input), &final.a[0], &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
 	default:
 		return false
@@ -318,6 +339,10 @@ func tryProcessLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, p
 		return false
 	}
 	if cpuid.HasAVX512 {
+		if uint(nShared) > ChunkSize/rate {
+			panic("kt128: nShared exceeds kernel stripe bound")
+		}
+		_ = trailing[n*ChunkSize+nShared*rate-1]
 		switch {
 		case n == 1:
 			processLeafPairPartialAVX512(unsafe.SliceData(trailing), unsafe.SliceData(trailing[ChunkSize:]), uint64(nShared), &cvs[0], &partial.a[0])
@@ -332,6 +357,10 @@ func tryProcessLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, p
 		if n < 1 || n > 3 {
 			return false
 		}
+		if uint(nShared) > ChunkSize/rate {
+			panic("kt128: nShared exceeds kernel stripe bound")
+		}
+		_ = trailing[n*ChunkSize+nShared*rate-1]
 		processLeavesQuadTailAVX2(unsafe.SliceData(trailing), &cvs[0], uint64(n), uint64(nShared), &partial.a[0])
 		return true
 	}

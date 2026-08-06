@@ -26,6 +26,12 @@ func fastLoopAbsorb168x1Arch(s *sponge, in []byte) bool {
 	if !cpuid.HasSHA3 {
 		return false
 	}
+	// The NEON loop terminates only on an exact byte-count match, so a ragged
+	// or zero length would run it off the end of the input; the amd64 loop
+	// bound-checks each stripe and tolerates both.
+	if len(in) == 0 || len(in)%rate != 0 {
+		panic("kt128: fastLoopAbsorb168 requires a positive whole number of rate blocks")
+	}
 	fastLoopAbsorb168x1(s, unsafe.SliceData(in), len(in))
 	return true
 }

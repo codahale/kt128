@@ -74,6 +74,10 @@ const tripleSerialTailBlocks = 32
 
 // Every try wrapper returns false without modifying its output arguments when
 // the requested kernel is unavailable or does not support the requested shape.
+// Immediately before entering assembly, each wrapper asserts that the input
+// covers the kernel's documented read footprint — and, for the tail variant,
+// that nShared is within the kernels' stripe bound — so a scheduling
+// miscalculation panics instead of reading out of bounds.
 
 // tryProcessLeavesX8Arch reports that arm64 has no x8 kernel; eight leaves
 // drain through the pair loop at the same cost.
@@ -87,6 +91,7 @@ func tryProcessLeavesBatch5Arch(input []byte, cvs *[256]byte) bool {
 	if !cpuid.HasSHA3 {
 		return false
 	}
+	_ = input[5*ChunkSize-1]
 	processLeaves5ARM64(unsafe.SliceData(input), &cvs[0])
 	return true
 }
@@ -97,6 +102,7 @@ func tryProcessLeavesTripleArch(input []byte, cvs *[256]byte) bool {
 	if !cpuid.HasSHA3 {
 		return false
 	}
+	_ = input[3*ChunkSize-1]
 	var scalar sponge
 	processLeaves3ARM64(unsafe.SliceData(input), unsafe.SliceData(input[2*ChunkSize:]), &cvs[0], &scalar.a[0])
 	scalar.absorbAll(input[2*ChunkSize+25*rate:], leafDS)
@@ -110,6 +116,7 @@ func tryProcessLeavesPairArch(input []byte, cvs *[256]byte) bool {
 	if !cpuid.HasSHA3 {
 		return false
 	}
+	_ = input[2*ChunkSize-1]
 	processLeavesPairARM64(unsafe.SliceData(input), &cvs[0])
 	return true
 }
@@ -126,6 +133,7 @@ func tryProcessS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) 
 		return false
 	}
 	if n == 3 {
+		_ = input[3*ChunkSize-1]
 		processLeaves3ARM64(unsafe.SliceData(input[ChunkSize:]), unsafe.SliceData(input), &cvs[32], &final.a[0])
 		final.absorb(input[25*rate : ChunkSize])
 		final.absorb(kt12Marker[:])
@@ -134,6 +142,7 @@ func tryProcessS0LeavesArch(input []byte, n int, final *sponge, cvs *[256]byte) 
 	if n != 2 {
 		return false
 	}
+	_ = input[2*ChunkSize-1]
 	processS0LeafPairARM64(unsafe.SliceData(input), &final.a[0], &cvs[32])
 	final.pos = ChunkSize%rate + len(kt12Marker) // mid-block after S_0 || marker
 	return true
@@ -159,6 +168,10 @@ func tryProcessLeavesTailArch(trailing []byte, n, nShared int, cvs *[256]byte, p
 	if !cpuid.HasSHA3 || n != 1 {
 		return false
 	}
+	if uint(nShared) > ChunkSize/rate {
+		panic("kt128: nShared exceeds kernel stripe bound")
+	}
+	_ = trailing[ChunkSize+nShared*rate-1]
 	processLeafPairPartialARM64(unsafe.SliceData(trailing), unsafe.SliceData(trailing[ChunkSize:]), uint64(nShared), &cvs[0], &partial.a[0])
 	return true
 }
