@@ -77,7 +77,7 @@ func TestPartialLeafFusionSizes(t *testing.T) {
 		} {
 			msg := ptn(size)
 			for _, chunk := range []int{size, ChunkSize, ChunkSize - 1} {
-				h := New(custom)
+				h := NewXOF(custom)
 				for off := 0; off < len(msg); off += chunk {
 					_, _ = h.Write(msg[off:min(off+chunk, len(msg))])
 				}
@@ -108,13 +108,9 @@ func testWritePartialLeafContinuation(t *testing.T) {
 			msg := ptn(first + cont)
 			want := referenceKT128(msg, nil, 32)
 
-			h := New(nil)
+			h := NewXOF(nil)
 			_, _ = h.Write(msg[:first])
-			cloner, err := h.Clone()
-			if err != nil {
-				t.Fatalf("Clone: %v", err)
-			}
-			clone := cloner.(*Hasher)
+			clone := h.Clone()
 			_, _ = h.Write(msg[first:])
 			got := make([]byte, 32)
 			_, _ = h.Read(got)

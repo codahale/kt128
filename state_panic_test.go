@@ -25,11 +25,11 @@ func mustPanic(t *testing.T, want string, fn func()) {
 func TestPanics(t *testing.T) {
 	// Writing after finalization (the first Read) is forbidden.
 	t.Run("write after finalize", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		if _, err := h.Read(make([]byte, 32)); err != nil {
 			t.Fatalf("Read: %v", err)
 		}
-		mustPanic(t, "kt128: Hasher is finalized", func() {
+		mustPanic(t, "kt128: XOF is finalized", func() {
 			_, _ = h.Write([]byte("x"))
 		})
 	})
@@ -37,8 +37,8 @@ func TestPanics(t *testing.T) {
 	// The message position must remain exact because finalization derives the
 	// tree leaf count from it. Reject the write before absorbing any bytes.
 	t.Run("message length overflow", func(t *testing.T) {
-		h := New(nil)
-		h.state = stateTree
+		h := NewXOF(nil)
+		h.phase = stateTree
 		h.pos = ^uint64(0)
 		h.final.a[0] = 1
 		h.leaf.a[0] = 2
@@ -49,7 +49,7 @@ func TestPanics(t *testing.T) {
 		})
 
 		if h.pos != ^uint64(0) || h.final.a[0] != 1 || h.leaf.a[0] != 2 || h.leafLen != 37 {
-			t.Fatalf("overflowing Write modified the Hasher: %#v", h)
+			t.Fatalf("overflowing Write modified the XOF: %#v", h)
 		}
 	})
 

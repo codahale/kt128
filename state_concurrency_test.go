@@ -29,7 +29,7 @@ func TestConcurrentCloneIndependence(t *testing.T) {
 	customization := bytes.Clone(custom)
 	baseMsg := ptn(2*ChunkSize + 100) // tree mode: Clone copies both sponge states and counters
 
-	base := New(customization)
+	base := NewXOF(customization)
 	if _, err := base.Write(baseMsg); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -45,8 +45,7 @@ func TestConcurrentCloneIndependence(t *testing.T) {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
-			cloner, _ := base.Clone()
-			h := cloner.(*Hasher)
+			h := base.Clone()
 			_, _ = h.Write(extra[w])
 			out := make([]byte, 64)
 			_, _ = h.Read(out)
@@ -66,8 +65,7 @@ func TestConcurrentCloneIndependence(t *testing.T) {
 	// The source must be untouched by the concurrent clones: reading a fresh clone
 	// of it (so base itself stays unfinalized) still yields the base output.
 	baseOut := make([]byte, 64)
-	cloner, _ := base.Clone()
-	_, _ = cloner.(*Hasher).Read(baseOut)
+	_, _ = base.Clone().Read(baseOut)
 	if want := referenceKT128(baseMsg, custom, 64); !bytes.Equal(baseOut, want) {
 		t.Errorf("source hasher changed after concurrent clones\n got  %x\n want %x", baseOut, want)
 	}
@@ -102,7 +100,7 @@ func TestConcurrentIndependentHashers(t *testing.T) {
 		go func(i int, tk task) {
 			defer wg.Done()
 			msg := ptn(tk.size)
-			h := New(tk.custom)
+			h := NewXOF(tk.custom)
 			_, _ = h.Write(msg)
 			out := make([]byte, 100)
 			_, _ = h.Read(out)
@@ -129,7 +127,7 @@ func TestConcurrentSharedReadOnly(t *testing.T) {
 	custom := []byte("ctx")
 	customization := bytes.Clone(custom)
 	msg := ptn(3*ChunkSize + 7)
-	h := New(customization)
+	h := NewXOF(customization)
 	if _, err := h.Write(msg); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -152,8 +150,7 @@ func TestConcurrentSharedReadOnly(t *testing.T) {
 					return
 				}
 				out := make([]byte, 64)
-				cloner, _ := h.Clone()
-				_, _ = cloner.(*Hasher).Read(out) // read the clone, never h itself
+				_, _ = h.Clone().Read(out) // read the clone, never h itself
 				if !bytes.Equal(out, want) {
 					errs[w] = fmt.Errorf("clone output mismatch")
 					return

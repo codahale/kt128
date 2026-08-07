@@ -1,18 +1,15 @@
 package kt128
 
-// Write absorbs p as message data. It always returns len(p), nil and does not
-// retain p. Write panics after any call to [Hasher.Read], including a zero-length
-// read, or if accepting p would bring the message length to 2^64 bytes.
-func (h *Hasher) Write(p []byte) (int, error) {
-	if h.state == stateFinalized {
-		panic("kt128: Hasher is finalized")
+func (h *state) write(p []byte) (int, error) {
+	if h.phase == stateFinalized {
+		panic("kt128: XOF is finalized")
 	}
 
 	n := len(p)
 	if uint64(n) > ^uint64(0)-h.pos {
 		panic("kt128: message length exceeds 2^64-1 bytes")
 	}
-	if h.state == stateSingle {
+	if h.phase == stateSingle {
 		// Fused fast path: with S_0 and at least one full leaf contiguous in
 		// p and nothing absorbed yet, process them together in one fused
 		// kernel pass. Each arch decides how many chunks to take via
@@ -56,7 +53,7 @@ func (h *Hasher) Write(p []byte) (int, error) {
 // absorbTreeData absorbs tree-mode input without retaining its bytes. A partial
 // leaf is continued through h.leaf; complete leaves contiguous in p still use
 // the SIMD batch path.
-func (h *Hasher) absorbTreeData(p []byte) {
+func (h *state) absorbTreeData(p []byte) {
 	if h.leafLen > 0 {
 		n := min(ChunkSize-h.leafLen, len(p))
 		h.leaf.absorb(p[:n])
@@ -108,7 +105,7 @@ func (h *Hasher) absorbTreeData(p []byte) {
 //	run     3..4-leaf remainders in one YMM quad pass, amd64
 //	        5..7 in one masked 8-wide pass
 //	x1      whatever remains, serially              all
-func (h *Hasher) processLeafBatch(data []byte, nLeaves int) {
+func (h *state) processLeafBatch(data []byte, nLeaves int) {
 	idx := 0
 
 	var cvs [256]byte

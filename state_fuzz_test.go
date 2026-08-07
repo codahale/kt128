@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// FuzzHasher is an end-to-end differential fuzz of the public Hasher against a
+// FuzzHasher is an end-to-end differential fuzz of the public XOF against a
 // self-contained KT128 reference that routes exclusively through the pure-Go
 // keccakP1600x12 permutation. On amd64/arm64 this pits the full assembly path
 // (single-lane permute, fused absorb loop, and the SIMD leaf kernels reached in
@@ -57,7 +57,7 @@ func checkHasherInput(t *testing.T, msg, custom []byte, chunkRaw, outRaw uint16)
 	chunk := int(chunkRaw)%(ChunkSize+1) + 1
 	outLen := int(outRaw)%4096 + 1
 
-	h := New(custom)
+	h := NewXOF(custom)
 	for off := 0; off < len(msg); off += chunk {
 		if _, err := h.Write(msg[off:min(off+chunk, len(msg))]); err != nil {
 			t.Fatalf("Write: %v", err)

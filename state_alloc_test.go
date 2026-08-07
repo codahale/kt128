@@ -13,7 +13,7 @@ func TestWriteAllocationsDoNotScale(t *testing.T) {
 	out := make([]byte, 32)
 	cycle := func(msg []byte) func() {
 		return func() {
-			h := New(nil)
+			h := NewXOF(nil)
 			_, _ = h.Write(msg)
 			_, _ = h.Read(out)
 		}
@@ -45,7 +45,7 @@ func TestReadAllocationsDoNotScale(t *testing.T) {
 
 	read := func(out []byte) func() {
 		return func() {
-			h := New(nil)
+			h := NewXOF(nil)
 			_, _ = h.Write(msg)
 			_, _ = h.Read(out)
 		}
@@ -66,7 +66,7 @@ func TestReadAllocationsDoNotScale(t *testing.T) {
 func TestCustomizationFinalizationDoesNotAllocate(t *testing.T) {
 	var out [32]byte
 	for _, size := range []int{56, 128, ChunkSize + 7} {
-		h := New(ptn(size))
+		h := NewXOF(ptn(size))
 		allocs := testing.AllocsPerRun(20, func() {
 			h.Reset()
 			_, _ = h.Read(out[:])

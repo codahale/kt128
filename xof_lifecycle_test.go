@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// This file hardens the Hasher *lifecycle* — the state machine and the
+// This file hardens the XOF *lifecycle* — the state machine and the
 // Clone/Reset/Write/Read interactions — which FuzzHasher does not reach
 // because it only ever drives a single linear Write* -> Read sequence. Here an
 // interpreter applies an arbitrary interleaving of operations to a population of
@@ -48,7 +48,7 @@ func (m *lcModel) outputBytes() [32]byte {
 }
 
 type lcSlot struct {
-	h *Hasher
+	h *XOF
 	m *lcModel
 }
 
@@ -107,7 +107,7 @@ func lcFill(seed byte, n int) []byte {
 
 // lcWritePanics reports whether Write panicked, recovering it. Used to assert the
 // finalized-hasher write contract without aborting the interpreter.
-func lcWritePanics(h *Hasher, p []byte) (panicked bool) {
+func lcWritePanics(h *XOF, p []byte) (panicked bool) {
 	defer func() {
 		if recover() != nil {
 			panicked = true
@@ -124,10 +124,10 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 
 	var slots []*lcSlot
 	for _, c := range customs {
-		slots = append(slots, &lcSlot{h: New(c), m: &lcModel{custom: c}})
+		slots = append(slots, &lcSlot{h: NewXOF(c), m: &lcModel{custom: c}})
 	}
 	if len(slots) == 0 {
-		slots = append(slots, &lcSlot{h: New(nil), m: &lcModel{}})
+		slots = append(slots, &lcSlot{h: NewXOF(nil), m: &lcModel{}})
 	}
 
 	for step, op := range ops {
@@ -176,11 +176,7 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 			s.m.squeezed += l
 
 		case lcClone:
-			cloner, err := s.h.Clone()
-			if err != nil {
-				t.Fatalf("step %d: Clone: %v", step, err)
-			}
-			ns := &lcSlot{h: cloner.(*Hasher), m: s.m.clone()}
+			ns := &lcSlot{h: s.h.Clone(), m: s.m.clone()}
 			if len(slots) < lcMaxSlots {
 				slots = append(slots, ns)
 			} else {
@@ -207,8 +203,7 @@ func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 	// match their model. Cloning avoids disturbing the slot's squeeze position.
 	for k, sl := range slots {
 		var got [32]byte
-		cloner, _ := sl.h.Clone()
-		_, _ = cloner.(*Hasher).Read(got[:])
+		_, _ = sl.h.Clone().Read(got[:])
 		if want := sl.m.outputBytes(); got != want {
 			t.Fatalf("final: slot %d state diverged from model\n got  %x\n want %x", k, got, want)
 		}

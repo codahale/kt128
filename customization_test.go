@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-func TestNewCopiesCustomization(t *testing.T) {
+func TestNewXOFCopiesCustomization(t *testing.T) {
 	source := ptn(41)
 	want := bytes.Clone(source)
-	h := New(source)
+	h := NewXOF(source)
 
 	clear(source)
 	if !bytes.Equal(h.c, want) {
-		t.Fatal("New did not copy its customization input")
+		t.Fatal("NewXOF did not copy its customization input")
 	}
 
 	var got [32]byte
@@ -22,14 +22,24 @@ func TestNewCopiesCustomization(t *testing.T) {
 	}
 }
 
+func TestNewHashCopiesCustomization(t *testing.T) {
+	source := ptn(41)
+	want := bytes.Clone(source)
+	h := NewHash(source, 32)
+
+	clear(source)
+	if !bytes.Equal(h.c, want) {
+		t.Fatal("NewHash did not copy its customization input")
+	}
+	if got, expected := h.Sum(nil), referenceKT128(nil, want, h.Size()); !bytes.Equal(got, expected) {
+		t.Fatal("mutating the constructor input changed the hash digest")
+	}
+}
+
 func TestCloneCopiesCustomization(t *testing.T) {
 	custom := []byte("domain")
-	h := New(custom)
-	cloner, err := h.Clone()
-	if err != nil {
-		t.Fatalf("Clone: %v", err)
-	}
-	clone := cloner.(*Hasher)
+	h := NewXOF(custom)
+	clone := h.Clone()
 	clone.c[0] ^= 0xFF
 	if !bytes.Equal(h.c, custom) {
 		t.Fatalf("modifying clone customization changed original: %x", h.c)

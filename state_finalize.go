@@ -2,13 +2,10 @@ package kt128
 
 import "math/bits"
 
-// Read fills p with output from the XOF and returns len(p), nil. The first call,
-// including a zero-length call, finalizes the message; subsequent calls continue
-// squeezing the same output stream. Read never returns io.EOF.
-func (h *Hasher) Read(p []byte) (int, error) {
-	if h.state != stateFinalized {
+func (h *state) read(p []byte) (int, error) {
+	if h.phase != stateFinalized {
 		h.finalize()
-		h.state = stateFinalized
+		h.phase = stateFinalized
 	}
 	h.final.squeeze(p)
 	return len(p), nil
@@ -16,15 +13,15 @@ func (h *Hasher) Read(p []byte) (int, error) {
 
 // finalize absorbs the customization string and its length encoding as separate
 // segments, then applies the final pad-and-permute.
-func (h *Hasher) finalize() {
+func (h *state) finalize() {
 	h.finalizeWithCustomization(h.c)
 }
 
-func (h *Hasher) finalizeWithCustomization(custom []byte) {
+func (h *state) finalizeWithCustomization(custom []byte) {
 	var encoded [9]byte
 	h.absorbCustomization(custom, lengthEncode(encoded[:0], uint64(len(custom))))
 	var ds uint8 = singleDS
-	if h.state != stateSingle {
+	if h.phase != stateSingle {
 		ds = treeDS
 	}
 	h.final.padPermute(ds)
@@ -33,9 +30,9 @@ func (h *Hasher) finalizeWithCustomization(custom []byte) {
 // absorbCustomization absorbs the customization string and its length encoding
 // into the logical KT128 input. Message bytes up to one chunk are already in
 // h.final; tree-mode data continues through the incremental leaf state.
-func (h *Hasher) absorbCustomization(custom, encoded []byte) {
+func (h *state) absorbCustomization(custom, encoded []byte) {
 	suffixLen := uint64(len(custom)) + uint64(len(encoded))
-	if h.state == stateSingle {
+	if h.phase == stateSingle {
 		room := ChunkSize - int(h.pos)
 		if len(custom) <= room && len(encoded) <= room-len(custom) {
 			// Single-node: KT128 single-node finalization.

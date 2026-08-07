@@ -8,7 +8,7 @@ arbitrary-length output, customization strings, and optimized tree hashing for l
 
 ## Highlights
 
-- Implements KT128 as a streaming `hash.XOF` and as a `hash.Hash` with a 256-bit digest.
+- Implements KT128 as separate `hash.XOF` and `hash.Hash` types, with a caller-selected fixed digest size for `Hash`.
 - Switches to tree mode once the input exceeds one 8192-byte chunk.
 - Uses optimized assembly on `amd64` and `arm64`.
 - Falls back to pure Go on other targets, or with `-tags purego`.
@@ -55,7 +55,7 @@ fmt.Printf("%x\n", sum)
 For incremental input with a fixed 32-byte digest:
 
 ```go
-h := kt128.New(nil)
+h := kt128.NewHash(nil, 32)
 _, _ = h.Write([]byte("hello, "))
 _, _ = h.Write([]byte("world"))
 sum := h.Sum(nil)
@@ -76,7 +76,7 @@ import (
 )
 
 func main() {
- h := kt128.New(nil)
+ h := kt128.NewXOF(nil)
  _, _ = h.Write([]byte("hello, world"))
 
  out := make([]byte, 32)
@@ -86,8 +86,8 @@ func main() {
 }
 ```
 
-Any call to `Read`, including a zero-length call, finalizes the hasher. Subsequent reads continue squeezing the same
-output stream; `Write` and `Sum` panic after finalization. Because KT128 is an XOF, an arbitrary
+Any call to `Read`, including a zero-length call, finalizes the XOF. Subsequent reads continue squeezing the same
+output stream; `Write` panics after finalization. Because KT128 is an XOF, an arbitrary
 number of `Read` calls can be made for an arbitrary number of output bytes.
 
 ## Security
@@ -100,8 +100,8 @@ KT128 is designed to be fast and is not a password-hashing function. Use a purpo
 passwords and other low-entropy secrets.
 
 This package does not perform security-motivated zeroing of hashing state and provides no secure-erasure guarantee.
-`Reset` reinitializes a Hasher for reuse but does not guarantee that previous state is unrecoverable. This matches the
-Go standard library's
+`Reset` reinitializes a `Hash` or `XOF` for reuse but does not guarantee that previous state is unrecoverable. This
+matches the Go standard library's
 [`crypto/sha256`](https://pkg.go.dev/crypto/sha256) and [`crypto/hkdf`](https://pkg.go.dev/crypto/hkdf) APIs, which expose
 no state-zeroing operation.
 
@@ -112,20 +112,20 @@ establish that otherwise valid sponge lanes originated from a particular message
 
 ## Customization
 
-Pass the customization string to `New`:
+Pass the customization string to either constructor:
 
 ```go
 custom := []byte("example-domain")
-h := kt128.New(custom)
+x := kt128.NewXOF(custom)
 
-_, _ = h.Write([]byte("hello, world"))
+_, _ = x.Write([]byte("hello, world"))
 
 out := make([]byte, 64)
-_, _ = h.Read(out)
+_, _ = x.Read(out)
 ```
 
-`New` copies its customization input, so the caller may immediately modify or reuse the original slice. `Clone` copies
-the customization again, making each Hasher independently owned.
+`NewHash` and `NewXOF` copy their customization input, so the caller may immediately modify or reuse the original
+slice. `Clone` copies the customization again, making each value independently owned.
 
 ## Performance Notes
 
@@ -190,49 +190,53 @@ arm64 SHA3, and one chunk for generic Go.
 
 - `Sum(message, customization, outputLen)` returns the requested number of hash bytes without retaining either input
   slice. It panics if `outputLen` is negative.
-- `New(c)` creates a new hasher with a defensive copy of `c` (pass nil for none).
-- `Write` absorbs message bytes without retaining the input slice.
-- `(*Hasher).Sum` appends a 32-byte digest without changing the absorption state. It panics after `Read` finalizes the
-  hasher.
-- `Read(dst)` finalizes the hasher and squeezes output into `dst`; subsequent reads continue the output stream.
-- `Clone() (hash.Cloner, error)` returns an independent copy at the current absorption or squeeze position, including
-  an independent copy of the customization string. The dynamic result is a `*Hasher`, and the error is always `nil`.
-- `MarshalBinary`, `AppendBinary`, and `UnmarshalBinary` persist and restore the complete state at any absorption or
-  squeeze position, including the customization string. Failed unmarshaling leaves the receiver unchanged.
-- `Reset` reinitializes the hasher for reuse while preserving its customization string; it does not guarantee erasure
-  of the previous hashing state.
+- `NewHash(c, digestSize)` creates a fixed-digest `Hash` with a defensive copy of `c`. It panics unless `digestSize` is
+  positive. The zero value is usable with a 32-byte digest and no customization string.
+- `(*Hash).Sum` appends the configured number of digest bytes without changing the absorption state.
+- `NewXOF(c)` creates an extendable-output `XOF` with a defensive copy of `c`. The zero value is usable without a
+  customization string.
+- `(*XOF).Read(dst)` finalizes the XOF and squeezes output into `dst`; subsequent reads continue the output stream.
+- `Write` absorbs message bytes without retaining the input slice. `XOF.Write` panics after the first `Read`.
+- `(*Hash).Clone() (hash.Cloner, error)` returns an independent `*Hash`; its error is always nil. `(*XOF).Clone()`
+  returns an independent `*XOF` at the current absorption or squeeze position.
+- `MarshalBinary`, `AppendBinary`, and `UnmarshalBinary` persist and restore the complete type-specific state,
+  including a `Hash` digest size or an `XOF` squeeze position. Hash and XOF encodings are not interchangeable.
+- `Reset` reinitializes a value for reuse while preserving its customization string and, for `Hash`, its digest size.
+  It does not guarantee erasure of the previous hashing state.
 - `RecommendedWriteBufferSize` reports a runtime dispatch-specific buffer size for coalescing small writes into
   parallel leaf batches.
 - `Pos` returns the number of bytes written so far. `Write` panics before the message length would reach 2^64 bytes
   without an intervening `Reset`.
-- `Size` and `Hasher.Size()` report the 32-byte fixed digest size. `Hasher.BlockSize()` reports the 168-byte
+- `Hash.Size()` reports its configured digest size. `Hash.BlockSize()` and `XOF.BlockSize()` report the 168-byte
   TurboSHAKE128 sponge rate; `ChunkSize` is the 8192-byte KT128 tree chunk.
 
 ### Binary State Format
 
-The binary state format is stable across package releases. Version 1 has this layout:
+Version 1 of the binary state format has this layout:
 
 | Offset | Size | Field |
 | ---: | ---: | --- |
 | 0 | 5 | ASCII identifier `kt128` |
 | 5 | 1 | Format version, `1` |
-| 6 | 1 | Lifecycle: `0` single-node absorption, `1` tree absorption, `2` finalized |
-| 7 | 8 | Message position, unsigned big endian |
-| 15 | 8 | Customization length, unsigned big endian |
-| 23 | 200 | Final-node Keccak lanes, 25 unsigned little-endian 64-bit words |
-| 223 | 1 | Final-node sponge position |
-| 224 | 200 | Leaf Keccak lanes, 25 unsigned little-endian 64-bit words |
-| 424 | 1 | Leaf sponge position |
-| 425 | variable | Customization bytes |
+| 6 | 1 | Kind: `1` Hash, `2` XOF |
+| 7 | 1 | Lifecycle: `0` single-node absorption, `1` tree absorption, `2` finalized XOF |
+| 8 | 8 | Message position, unsigned big endian |
+| 16 | 8 | Customization length, unsigned big endian |
+| 24 | 8 | Hash digest size, unsigned big endian; zero for XOF |
+| 32 | 200 | Final-node Keccak lanes, 25 unsigned little-endian 64-bit words |
+| 232 | 1 | Final-node sponge position |
+| 233 | 200 | Leaf Keccak lanes, 25 unsigned little-endian 64-bit words |
+| 433 | 1 | Leaf sponge position |
+| 434 | variable | Customization bytes |
 
-The encoding is canonical: its total size must equal 425 plus the encoded customization length, and lifecycle-specific
-positions and inactive leaf state must agree with the message position.
+The encoding is canonical: its total size must equal 434 plus the encoded customization length, its kind and digest
+size must agree, and lifecycle-specific positions and inactive leaf state must agree with the message position.
 
 ## Ownership and Buffering
 
 The caller owns every input and output slice. `Write` absorbs its argument before returning and does not retain it, so
 the caller may immediately modify or reuse a message slice. `Read` writes directly into its argument and does not retain
-it. A `Hasher` retains fixed-size hashing state and an owned copy of its customization string; it does not retain
+it. A `Hash` or `XOF` retains fixed-size hashing state and an owned copy of its customization string; it does not retain
 message bytes or allocate a message-sized internal buffer.
 
 Complete leaves contiguous within a `Write` use the parallel kernels, while leaves assembled from smaller writes are
@@ -240,21 +244,21 @@ absorbed incrementally. Applications issuing small writes can recover bulk throu
 the default 4 KiB `bufio.Writer` is too small for this purpose:
 
 ```go
-h := kt128.New(custom)
-w := bufio.NewWriterSize(h, kt128.RecommendedWriteBufferSize())
+x := kt128.NewXOF(custom)
+w := bufio.NewWriterSize(x, kt128.RecommendedWriteBufferSize())
 ```
 
 The recommendation is eight chunks on amd64 with AVX2 or AVX-512, five chunks on arm64 with the SHA3 extension, and
 one chunk on scalar implementations. Larger multiples may be used when retaining more message data is acceptable.
 
 External buffering remains entirely caller managed. A `bufio.Writer` may retain message bytes in its backing array;
-large writes may instead pass directly through to the Hasher. Bytes reported by `w.Buffered()` have not reached the
-Hasher. Call `w.Flush()` before `Sum`, `Read`, `Clone`, or `Pos` when those operations must account for every submitted
-byte. Before `Reset`, either flush pending bytes if they belong to the current message or reset the writer without
-flushing if they should be discarded.
+large writes may instead pass directly through to the Hash or XOF. Bytes reported by `w.Buffered()` have not reached
+the destination. Call `w.Flush()` before `Sum`, `Read`, `Clone`, or `Pos` when those operations must account for every
+submitted byte. Before `Reset`, either flush pending bytes if they belong to the current message or reset the writer
+without flushing if they should be discarded.
 The caller owns the writer, its destination, and the sequencing and error handling for `Write` and `Flush`.
 
-Neither resetting a `Hasher` nor resetting a `bufio.Writer` promises to erase its previous contents. The Go compiler
+Neither resetting a `Hash` or `XOF` nor resetting a `bufio.Writer` promises to erase its previous contents. The Go compiler
 and runtime may also retain copies in stack slots, registers, or other runtime-managed storage.
 
 ## License

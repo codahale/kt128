@@ -74,7 +74,7 @@ func testUnavailableKernelWrappers(t *testing.T) {
 	}
 
 	t.Run("fused_leaf_caller", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		h.final = sponge{pos: 17}
 		h.final.a[0] = 1
 		h.leaf = sponge{pos: 23}
@@ -82,11 +82,11 @@ func testUnavailableKernelWrappers(t *testing.T) {
 		h.leafLen = 31
 		wantFinal, wantLeaf, wantLeafLen := h.final, h.leaf, h.leafLen
 
-		if h.startLeafFused(input[:ChunkSize+rate], 1, input[ChunkSize:ChunkSize+rate]) {
+		if h.core().startLeafFused(input[:ChunkSize+rate], 1, input[ChunkSize:ChunkSize+rate]) {
 			t.Fatal("unavailable fused leaf kernel reported success")
 		}
 		if h.final != wantFinal || h.leaf != wantLeaf || h.leafLen != wantLeafLen {
-			t.Fatal("failed fused leaf dispatch modified the Hasher")
+			t.Fatal("failed fused leaf dispatch modified the XOF")
 		}
 	})
 }

@@ -3,10 +3,11 @@ package kt128
 import (
 	"bytes"
 	"fmt"
+	"hash"
 	"testing"
 )
 
-func TestHasherSum(t *testing.T) {
+func TestHashSum(t *testing.T) {
 	tests := []struct {
 		name    string
 		message []byte
@@ -18,50 +19,86 @@ func TestHasherSum(t *testing.T) {
 		{name: "customized", message: ptn(ChunkSize - 4), custom: []byte("domain")},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			h := New(tc.custom)
-			_, _ = h.Write(tc.message)
+	for _, digestSize := range []int{1, 16, 32, rate + 3} {
+		for _, tc := range tests {
+			t.Run(fmt.Sprintf("%s/digest=%d", tc.name, digestSize), func(t *testing.T) {
+				h := NewHash(tc.custom, digestSize)
+				_, _ = h.Write(tc.message)
 
-			prefix := []byte("prefix")
-			got := h.Sum(bytes.Clone(prefix))
-			want := append(bytes.Clone(prefix), referenceKT128(tc.message, tc.custom, Size)...)
-			if !bytes.Equal(got, want) {
-				t.Fatalf("Sum() = %x, want %x", got, want)
-			}
-			if h.Pos() != uint64(len(tc.message)) {
-				t.Fatalf("Sum changed Pos() to %d, want %d", h.Pos(), len(tc.message))
-			}
+				prefix := []byte("prefix")
+				got := h.Sum(bytes.Clone(prefix))
+				want := append(bytes.Clone(prefix), referenceKT128(tc.message, tc.custom, digestSize)...)
+				if !bytes.Equal(got, want) {
+					t.Fatalf("Sum() = %x, want %x", got, want)
+				}
+				if h.Pos() != uint64(len(tc.message)) {
+					t.Fatalf("Sum changed Pos() to %d, want %d", h.Pos(), len(tc.message))
+				}
 
-			// Sum must leave the absorption state unchanged and repeatable.
-			if next := h.Sum(nil); !bytes.Equal(next, want[len(prefix):]) {
-				t.Fatalf("second Sum() = %x, want %x", next, want[len(prefix):])
-			}
-			_, _ = h.Write([]byte("tail"))
-			wantAfterWrite := referenceKT128(append(bytes.Clone(tc.message), "tail"...), tc.custom, Size)
-			if next := h.Sum(nil); !bytes.Equal(next, wantAfterWrite) {
-				t.Fatalf("Sum() after Write = %x, want %x", next, wantAfterWrite)
-			}
-		})
-	}
-}
-
-func TestHasherSumPanicsAfterRead(t *testing.T) {
-	for _, readLen := range []int{0, 1, Size} {
-		t.Run(fmt.Sprintf("read=%d", readLen), func(t *testing.T) {
-			h := New(nil)
-			_, _ = h.Write([]byte("message"))
-			_, _ = h.Read(make([]byte, readLen))
-			mustPanic(t, "kt128: Hasher is finalized", func() {
-				h.Sum(nil)
+				// Sum must leave the absorption state unchanged and repeatable.
+				if next := h.Sum(nil); !bytes.Equal(next, want[len(prefix):]) {
+					t.Fatalf("second Sum() = %x, want %x", next, want[len(prefix):])
+				}
+				_, _ = h.Write([]byte("tail"))
+				wantAfterWrite := referenceKT128(append(bytes.Clone(tc.message), "tail"...), tc.custom, digestSize)
+				if next := h.Sum(nil); !bytes.Equal(next, wantAfterWrite) {
+					t.Fatalf("Sum() after Write = %x, want %x", next, wantAfterWrite)
+				}
 			})
+		}
+	}
+}
+
+func TestHashSize(t *testing.T) {
+	for _, size := range []int{1, 16, 32, 64, 257} {
+		if got := NewHash(nil, size).Size(); got != size {
+			t.Fatalf("NewHash(nil, %d).Size() = %d", size, got)
+		}
+	}
+	var zero Hash
+	if got := zero.Size(); got != defaultDigestSize {
+		t.Fatalf("zero-value Size() = %d, want %d", got, defaultDigestSize)
+	}
+}
+
+func TestHashZeroValue(t *testing.T) {
+	var h Hash
+	message := []byte("message")
+	_, _ = h.Write(message)
+	if got, want := h.Sum(nil), referenceKT128(message, nil, defaultDigestSize); !bytes.Equal(got, want) {
+		t.Fatalf("zero-value digest = %x, want %x", got, want)
+	}
+}
+
+func TestHashResetPreservesConfiguration(t *testing.T) {
+	custom := []byte("domain")
+	h := NewHash(custom, 57)
+	_, _ = h.Write([]byte("discarded"))
+	h.Reset()
+	message := []byte("message")
+	_, _ = h.Write(message)
+	if h.Size() != 57 {
+		t.Fatalf("Size() after Reset = %d, want 57", h.Size())
+	}
+	if got, want := h.Sum(nil), referenceKT128(message, custom, 57); !bytes.Equal(got, want) {
+		t.Fatalf("digest after Reset = %x, want %x", got, want)
+	}
+}
+
+func TestNewHashPanicsWithNonPositiveDigestSize(t *testing.T) {
+	for _, size := range []int{-1, 0} {
+		mustPanic(t, "kt128: non-positive digest size", func() {
+			NewHash(nil, size)
 		})
 	}
 }
 
-func TestHasherSize(t *testing.T) {
-	if got := New(nil).Size(); got != Size {
-		t.Fatalf("Size() = %d, want %d", got, Size)
+func TestHashAndXOFInterfacesAreDistinct(t *testing.T) {
+	if _, ok := any(NewHash(nil, 32)).(hash.XOF); ok {
+		t.Fatal("Hash implements hash.XOF")
+	}
+	if _, ok := any(NewXOF(nil)).(hash.Hash); ok {
+		t.Fatal("XOF implements hash.Hash")
 	}
 }
 

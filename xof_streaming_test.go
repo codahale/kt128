@@ -28,13 +28,13 @@ func TestWritePartitionInvariance(t *testing.T) {
 			customization := bytes.Clone(custom)
 
 			// Reference: a single Write.
-			ref := New(customization)
+			ref := NewXOF(customization)
 			_, _ = ref.Write(msg)
 			want := make([]byte, 64)
 			_, _ = ref.Read(want)
 
 			for _, chunk := range chunks {
-				h := New(customization)
+				h := NewXOF(customization)
 				for off := 0; off < len(msg); off += chunk {
 					_, _ = h.Write(msg[off:min(off+chunk, len(msg))])
 				}
@@ -67,13 +67,13 @@ func TestReadPartitionInvariance(t *testing.T) {
 		msg := ptn(msgLen)
 
 		// Reference: one Read of the whole output.
-		ref := New(nil)
+		ref := NewXOF(nil)
 		_, _ = ref.Write(msg)
 		want := make([]byte, outLen)
 		_, _ = ref.Read(want)
 
 		for _, chunk := range chunks {
-			h := New(nil)
+			h := NewXOF(nil)
 			_, _ = h.Write(msg)
 			got := make([]byte, outLen)
 			for off := 0; off < outLen; off += chunk {

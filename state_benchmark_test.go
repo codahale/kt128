@@ -49,7 +49,7 @@ func BenchmarkHasherWrite(b *testing.B) {
 			name += "-recommended"
 		}
 		b.Run(name, func(b *testing.B) {
-			h := New(nil)
+			h := NewXOF(nil)
 			w := bufio.NewWriterSize(h, bufferSize)
 			var out [32]byte
 			b.SetBytes(messageSize)
@@ -69,7 +69,7 @@ func BenchmarkHasherWrite(b *testing.B) {
 }
 
 func benchmarkWrites(b *testing.B, msg []byte, writeSize int) {
-	h := New(nil)
+	h := NewXOF(nil)
 	var out [32]byte
 	b.Helper()
 	b.SetBytes(int64(len(msg)))

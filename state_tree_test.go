@@ -6,7 +6,7 @@ import (
 )
 
 // TestWriteFusedS0Leaf checks that the fused S_0+leaf fast path (S_0 and the
-// first leaf arriving in one Write of an untouched Hasher) produces the same
+// first leaf arriving in one Write of an untouched XOF) produces the same
 // output as the incremental path it bypasses.
 func TestWriteFusedS0Leaf(t *testing.T) {
 	sizes := []int{
@@ -16,12 +16,12 @@ func TestWriteFusedS0Leaf(t *testing.T) {
 	for _, size := range sizes {
 		msg := ptn(size)
 
-		one := New(nil)
+		one := NewXOF(nil)
 		_, _ = one.Write(msg)
 		got := make([]byte, 64)
 		_, _ = one.Read(got)
 
-		two := New(nil)
+		two := NewXOF(nil)
 		_, _ = two.Write(msg[:1]) // eager absorption forecloses fusion
 		_, _ = two.Write(msg[1:])
 		want := make([]byte, 64)
@@ -35,11 +35,11 @@ func TestWriteFusedS0Leaf(t *testing.T) {
 
 func TestWriteTreeModeIncrementalLeaf(t *testing.T) {
 	t.Run("direct S0", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		_, _ = h.Write(ptn(ChunkSize + 1))
 
-		if h.state != stateTree {
-			t.Fatalf("state = %d, want stateTree", h.state)
+		if h.phase != stateTree {
+			t.Fatalf("state = %d, want stateTree", h.phase)
 		}
 		if h.leafLen != 1 {
 			t.Fatalf("partial leaf bytes = %d, want 1", h.leafLen)
@@ -47,11 +47,11 @@ func TestWriteTreeModeIncrementalLeaf(t *testing.T) {
 	})
 
 	t.Run("no leaf below one chunk", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		_, _ = h.Write(ptn(ChunkSize))
 
-		if h.state != stateSingle {
-			t.Fatalf("state = %d, want stateSingle", h.state)
+		if h.phase != stateSingle {
+			t.Fatalf("state = %d, want stateSingle", h.phase)
 		}
 		if h.leafLen != 0 || h.leaf != (sponge{}) {
 			t.Fatalf("unexpected partial leaf state: len=%d state=%#v", h.leafLen, h.leaf)
@@ -59,7 +59,7 @@ func TestWriteTreeModeIncrementalLeaf(t *testing.T) {
 	})
 
 	t.Run("fragment completes leaf", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		_, _ = h.Write(ptn(ChunkSize + 1))
 		_, _ = h.Write(ptn(ChunkSize - 1))
 
@@ -72,7 +72,7 @@ func TestWriteTreeModeIncrementalLeaf(t *testing.T) {
 		msg := ptn(2*availableLanes*ChunkSize + 123)
 		var out [32]byte
 		allocs := testing.AllocsPerRun(20, func() {
-			h := New(nil)
+			h := NewXOF(nil)
 			for off := 0; off < len(msg); off += 1024 {
 				_, _ = h.Write(msg[off:min(off+1024, len(msg))])
 			}
@@ -84,7 +84,7 @@ func TestWriteTreeModeIncrementalLeaf(t *testing.T) {
 	})
 
 	t.Run("ragged bulk write retains only leaf state", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		_, _ = h.Write(ptn(6*ChunkSize + 37))
 
 		if h.leafLen != 37 {

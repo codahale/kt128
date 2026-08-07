@@ -7,14 +7,16 @@ import (
 	"testing"
 )
 
-func TestHasherMarshalBinaryStableEncoding(t *testing.T) {
-	h := &Hasher{
-		c:     []byte("ctx"),
-		pos:   0x0102030405060708,
-		state: stateFinalized,
-		final: sponge{
-			a:   [lanes]uint64{0: 0x0807060504030201, lanes - 1: 0x1122334455667788},
-			pos: rate,
+func TestXOFMarshalBinaryStableEncoding(t *testing.T) {
+	h := &XOF{
+		state: state{
+			c:     []byte("ctx"),
+			pos:   0x0102030405060708,
+			phase: stateFinalized,
+			final: sponge{
+				a:   [lanes]uint64{0: 0x0807060504030201, lanes - 1: 0x1122334455667788},
+				pos: rate,
+			},
 		},
 	}
 
@@ -24,9 +26,10 @@ func TestHasherMarshalBinaryStableEncoding(t *testing.T) {
 	}
 
 	want := []byte("kt128")
-	want = append(want, 1, stateFinalized)
+	want = append(want, hashStateVersion, stateKindXOF, stateFinalized)
 	want = binary.BigEndian.AppendUint64(want, 0x0102030405060708)
 	want = binary.BigEndian.AppendUint64(want, 3)
+	want = binary.BigEndian.AppendUint64(want, 0)
 	want = append(want, 1, 2, 3, 4, 5, 6, 7, 8)
 	want = append(want, make([]byte, (lanes-2)*8)...)
 	want = append(want, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11)
@@ -40,7 +43,7 @@ func TestHasherMarshalBinaryStableEncoding(t *testing.T) {
 	}
 }
 
-func TestHasherMarshalBinaryAbsorbingRoundTrip(t *testing.T) {
+func TestXOFMarshalBinaryAbsorbingRoundTrip(t *testing.T) {
 	tests := []struct {
 		name   string
 		msgLen int
@@ -59,7 +62,7 @@ func TestHasherMarshalBinaryAbsorbingRoundTrip(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			msg := ptn(tc.msgLen)
-			h := New(tc.custom)
+			h := NewXOF(tc.custom)
 			for off := 0; off < len(msg); off += tc.step {
 				_, _ = h.Write(msg[off:min(off+tc.step, len(msg))])
 			}
@@ -68,7 +71,7 @@ func TestHasherMarshalBinaryAbsorbingRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored := New([]byte("replaced customization"))
+			restored := NewXOF([]byte("replaced customization"))
 			_, _ = restored.Write([]byte("replaced state"))
 			if err := restored.UnmarshalBinary(encoded); err != nil {
 				t.Fatal(err)
@@ -102,14 +105,99 @@ func TestHasherMarshalBinaryAbsorbingRoundTrip(t *testing.T) {
 	}
 }
 
-func TestHasherMarshalBinaryFinalizedRoundTrip(t *testing.T) {
+func TestHashMarshalBinaryRoundTrip(t *testing.T) {
+	for _, digestSize := range []int{1, 32, 257} {
+		t.Run(fmt.Sprintf("digest=%d", digestSize), func(t *testing.T) {
+			custom := []byte("domain")
+			h := NewHash(custom, digestSize)
+			_, _ = h.Write(ptn(ChunkSize + 17))
+
+			encoded, err := h.MarshalBinary()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if encoded[marshalKindOffset] != stateKindHash {
+				t.Fatalf("state kind = %d, want Hash", encoded[marshalKindOffset])
+			}
+			if got := binary.BigEndian.Uint64(encoded[marshalDigestOffset:]); got != uint64(digestSize) {
+				t.Fatalf("encoded digest size = %d, want %d", got, digestSize)
+			}
+
+			var restored Hash
+			if err := restored.UnmarshalBinary(encoded); err != nil {
+				t.Fatal(err)
+			}
+			if restored.Size() != digestSize {
+				t.Fatalf("restored Size() = %d, want %d", restored.Size(), digestSize)
+			}
+			continuation := []byte("continuation")
+			_, _ = h.Write(continuation)
+			_, _ = restored.Write(continuation)
+			if got, want := restored.Sum(nil), h.Sum(nil); !bytes.Equal(got, want) {
+				t.Fatal("restored Hash diverged after continuation")
+			}
+		})
+	}
+}
+
+func TestMarshalBinaryRejectsWrongConcreteType(t *testing.T) {
+	hashEncoding, err := NewHash(nil, 32).MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xofEncoding, err := NewXOF(nil).MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var h Hash
+	if err := h.UnmarshalBinary(xofEncoding); err == nil {
+		t.Fatal("Hash accepted XOF state")
+	}
+	var x XOF
+	if err := x.UnmarshalBinary(hashEncoding); err == nil {
+		t.Fatal("XOF accepted Hash state")
+	}
+}
+
+func TestHashUnmarshalRejectsInvalidDigestSizeAtomically(t *testing.T) {
+	encoded, err := NewHash([]byte("encoded"), 32).MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := NewHash([]byte("existing"), 64)
+	_, _ = target.Write([]byte("message"))
+	before, _ := target.MarshalBinary()
+
+	for _, digestSize := range []uint64{0, ^uint64(0)} {
+		input := bytes.Clone(encoded)
+		binary.BigEndian.PutUint64(input[marshalDigestOffset:], digestSize)
+		if err := target.UnmarshalBinary(input); err == nil {
+			t.Fatalf("accepted digest size %d", digestSize)
+		}
+		after, err := target.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(after, before) {
+			t.Fatal("failed unmarshal modified Hash")
+		}
+	}
+
+	target.digest = -1
+	if _, err := target.MarshalBinary(); err == nil {
+		t.Fatal("MarshalBinary accepted a negative digest size")
+	}
+}
+
+func TestXOFMarshalBinaryFinalizedRoundTrip(t *testing.T) {
 	for _, msgLen := range []int{37, 2*ChunkSize + 19} {
 		for _, squeezed := range []int{0, 1, rate - 1, rate, rate + 1, 3*rate + 9} {
 			name := fmt.Sprintf("message=%d/squeezed=%d", msgLen, squeezed)
 			t.Run(name, func(t *testing.T) {
 				custom := []byte("domain")
 				msg := ptn(msgLen)
-				h := New(custom)
+				h := NewXOF(custom)
 				_, _ = h.Write(msg)
 				_, _ = h.Read(make([]byte, squeezed))
 
@@ -117,7 +205,7 @@ func TestHasherMarshalBinaryFinalizedRoundTrip(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				var restored Hasher
+				var restored XOF
 				if err := restored.UnmarshalBinary(encoded); err != nil {
 					t.Fatal(err)
 				}
@@ -147,8 +235,8 @@ func TestHasherMarshalBinaryFinalizedRoundTrip(t *testing.T) {
 	}
 }
 
-func TestHasherAppendBinary(t *testing.T) {
-	h := New([]byte("custom"))
+func TestXOFAppendBinary(t *testing.T) {
+	h := NewXOF([]byte("custom"))
 	_, _ = h.Write(ptn(ChunkSize + 17))
 
 	marshaled, err := h.MarshalBinary()
@@ -170,13 +258,13 @@ func TestHasherAppendBinary(t *testing.T) {
 	}
 }
 
-func TestHasherMarshalBinaryCanonicalAcrossChunking(t *testing.T) {
+func TestXOFMarshalBinaryCanonicalAcrossChunking(t *testing.T) {
 	custom := ptn(29)
 	msg := ptn(9*ChunkSize + rate + 13)
 
-	bulk := New(custom)
+	bulk := NewXOF(custom)
 	_, _ = bulk.Write(msg)
-	incremental := New(custom)
+	incremental := NewXOF(custom)
 	for off := 0; off < len(msg); off += 137 {
 		_, _ = incremental.Write(msg[off:min(off+137, len(msg))])
 	}
@@ -210,15 +298,15 @@ func TestHasherMarshalBinaryCanonicalAcrossChunking(t *testing.T) {
 	}
 }
 
-func TestHasherUnmarshalBinaryCopiesCustomization(t *testing.T) {
+func TestXOFUnmarshalBinaryCopiesCustomization(t *testing.T) {
 	custom := []byte("owned customization")
-	h := New(custom)
+	h := NewXOF(custom)
 	encoded, err := h.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var restored Hasher
+	var restored XOF
 	if err := restored.UnmarshalBinary(encoded); err != nil {
 		t.Fatal(err)
 	}
@@ -234,20 +322,20 @@ func TestHasherUnmarshalBinaryCopiesCustomization(t *testing.T) {
 	}
 }
 
-func TestHasherUnmarshalBinaryRejectsInvalidStatesAtomically(t *testing.T) {
-	single := New([]byte("custom"))
+func TestXOFUnmarshalBinaryRejectsInvalidStatesAtomically(t *testing.T) {
+	single := NewXOF([]byte("custom"))
 	_, _ = single.Write(ptn(100))
 	singleEncoding, _ := single.MarshalBinary()
 
-	tree := New(nil)
+	tree := NewXOF(nil)
 	_, _ = tree.Write(ptn(2*ChunkSize + 17))
 	treeEncoding, _ := tree.MarshalBinary()
 
-	completedTree := New(nil)
+	completedTree := NewXOF(nil)
 	_, _ = completedTree.Write(ptn(2 * ChunkSize))
 	completedTreeEncoding, _ := completedTree.MarshalBinary()
 
-	finalized := New(nil)
+	finalized := NewXOF(nil)
 	_, _ = finalized.Read(nil)
 	finalizedEncoding, _ := finalized.MarshalBinary()
 
@@ -261,6 +349,12 @@ func TestHasherUnmarshalBinaryRejectsInvalidStatesAtomically(t *testing.T) {
 		{"short identifier", []byte("kt12")},
 		{"bad identifier", func() []byte { b := clone(singleEncoding); b[0] ^= 1; return b }()},
 		{"bad version", func() []byte { b := clone(singleEncoding); b[marshalVersionOffset]++; return b }()},
+		{"bad kind", func() []byte { b := clone(singleEncoding); b[marshalKindOffset] = stateKindHash; return b }()},
+		{"XOF digest size", func() []byte {
+			b := clone(singleEncoding)
+			binary.BigEndian.PutUint64(b[marshalDigestOffset:], 1)
+			return b
+		}()},
 		{"bad lifecycle", func() []byte { b := clone(singleEncoding); b[marshalStateOffset] = 0xff; return b }()},
 		{"wrong customization length", func() []byte {
 			b := clone(singleEncoding)
@@ -344,7 +438,7 @@ func TestHasherUnmarshalBinaryRejectsInvalidStatesAtomically(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			target := New([]byte("existing"))
+			target := NewXOF([]byte("existing"))
 			_, _ = target.Write(ptn(ChunkSize + 3))
 			before, err := target.MarshalBinary()
 			if err != nil {
@@ -368,18 +462,18 @@ func TestHasherUnmarshalBinaryRejectsInvalidStatesAtomically(t *testing.T) {
 	}
 }
 
-func TestHasherMarshalBinaryRejectsInvalidInternalState(t *testing.T) {
+func TestXOFMarshalBinaryRejectsInvalidInternalState(t *testing.T) {
 	tests := []struct {
 		name string
-		h    Hasher
+		h    XOF
 	}{
-		{"unknown lifecycle", Hasher{state: 99}},
-		{"single position", Hasher{pos: 1, state: stateSingle}},
-		{"single leaf", Hasher{state: stateSingle, leaf: sponge{a: [lanes]uint64{1}}}},
-		{"tree range", Hasher{state: stateTree}},
-		{"tree leaf length", Hasher{pos: ChunkSize + 1, state: stateTree, final: sponge{pos: treeFinalPosition(ChunkSize + 1)}}},
-		{"finalized leaf", Hasher{state: stateFinalized, leafLen: 1}},
-		{"finalized position", Hasher{state: stateFinalized, final: sponge{pos: rate + 1}}},
+		{"unknown lifecycle", XOF{state: state{phase: 99}}},
+		{"single position", XOF{state: state{pos: 1, phase: stateSingle}}},
+		{"single leaf", XOF{state: state{phase: stateSingle, leaf: sponge{a: [lanes]uint64{1}}}}},
+		{"tree range", XOF{state: state{phase: stateTree}}},
+		{"tree leaf length", XOF{state: state{pos: ChunkSize + 1, phase: stateTree, final: sponge{pos: treeFinalPosition(ChunkSize + 1)}}}},
+		{"finalized leaf", XOF{state: state{phase: stateFinalized, leafLen: 1}}},
+		{"finalized position", XOF{state: state{phase: stateFinalized, final: sponge{pos: rate + 1}}}},
 	}
 	for i := range tests {
 		tc := &tests[i]
@@ -391,21 +485,21 @@ func TestHasherMarshalBinaryRejectsInvalidInternalState(t *testing.T) {
 	}
 }
 
-func FuzzHasherUnmarshalBinary(f *testing.F) {
+func FuzzXOFUnmarshalBinary(f *testing.F) {
 	for _, size := range []int{0, 100, ChunkSize + 1, 2*ChunkSize + rate} {
-		h := New([]byte("custom"))
+		h := NewXOF([]byte("custom"))
 		_, _ = h.Write(ptn(size))
 		encoded, _ := h.MarshalBinary()
 		f.Add(encoded)
 	}
-	h := New([]byte("custom"))
+	h := NewXOF([]byte("custom"))
 	_, _ = h.Write(ptn(100))
 	_, _ = h.Read(make([]byte, rate+3))
 	encoded, _ := h.MarshalBinary()
 	f.Add(encoded)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var h1 Hasher
+		var h1 XOF
 		if err := h1.UnmarshalBinary(data); err != nil {
 			return
 		}
@@ -417,11 +511,11 @@ func FuzzHasherUnmarshalBinary(f *testing.F) {
 			t.Fatal("accepted state was not canonical")
 		}
 
-		var h2 Hasher
+		var h2 XOF
 		if err := h2.UnmarshalBinary(canonical); err != nil {
 			t.Fatalf("canonical state failed to unmarshal: %v", err)
 		}
-		if h1.state != stateFinalized {
+		if h1.phase != stateFinalized {
 			_, _ = h1.Write([]byte("continuation"))
 			_, _ = h2.Write([]byte("continuation"))
 		}
@@ -429,6 +523,41 @@ func FuzzHasherUnmarshalBinary(f *testing.F) {
 		_, _ = h1.Read(out1)
 		_, _ = h2.Read(out2)
 		if !bytes.Equal(out1, out2) {
+			t.Fatal("restored states diverged")
+		}
+	})
+}
+
+func FuzzHashUnmarshalBinary(f *testing.F) {
+	for _, digestSize := range []int{1, 32, 257} {
+		for _, messageSize := range []int{0, 100, ChunkSize + 1} {
+			h := NewHash([]byte("custom"), digestSize)
+			_, _ = h.Write(ptn(messageSize))
+			encoded, _ := h.MarshalBinary()
+			f.Add(encoded)
+		}
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var h1 Hash
+		if err := h1.UnmarshalBinary(data); err != nil {
+			return
+		}
+		canonical, err := h1.MarshalBinary()
+		if err != nil {
+			t.Fatalf("accepted state failed to marshal: %v", err)
+		}
+		if !bytes.Equal(canonical, data) {
+			t.Fatal("accepted state was not canonical")
+		}
+
+		var h2 Hash
+		if err := h2.UnmarshalBinary(canonical); err != nil {
+			t.Fatalf("canonical state failed to unmarshal: %v", err)
+		}
+		_, _ = h1.Write([]byte("continuation"))
+		_, _ = h2.Write([]byte("continuation"))
+		if h1.Size() <= 4096 && !bytes.Equal(h1.Sum(nil), h2.Sum(nil)) {
 			t.Fatal("restored states diverged")
 		}
 	})

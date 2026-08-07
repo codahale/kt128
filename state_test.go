@@ -6,21 +6,17 @@ import (
 	"testing"
 )
 
-func TestClone(t *testing.T) {
+func TestXOFClone(t *testing.T) {
 	sizes := []int{0, 1, ChunkSize - 1, ChunkSize, ChunkSize + 1, 83521}
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
 			msg := ptn(size)
 
 			// Write all data, clone, verify both produce the same output.
-			h := New(nil)
+			h := NewXOF(nil)
 			_, _ = h.Write(msg)
 
-			cloner, err := h.Clone()
-			if err != nil {
-				t.Fatalf("Clone: %v", err)
-			}
-			clone := cloner.(*Hasher)
+			clone := h.Clone()
 
 			// Finalizing the original must not affect the clone.
 			want := make([]byte, 64)
@@ -36,14 +32,10 @@ func TestClone(t *testing.T) {
 	}
 
 	t.Run("independent after clone", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		_, _ = h.Write(ptn(ChunkSize + 1))
 
-		cloner, err := h.Clone()
-		if err != nil {
-			t.Fatalf("Clone: %v", err)
-		}
-		clone := cloner.(*Hasher)
+		clone := h.Clone()
 
 		// Write more data to the original only.
 		_, _ = h.Write([]byte("extra"))
@@ -60,16 +52,56 @@ func TestClone(t *testing.T) {
 	})
 }
 
+func TestXOFZeroValue(t *testing.T) {
+	var x XOF
+	message := []byte("message")
+	_, _ = x.Write(message)
+	got := make([]byte, 64)
+	_, _ = x.Read(got)
+	if want := referenceKT128(message, nil, len(got)); !bytes.Equal(got, want) {
+		t.Fatalf("zero-value output = %x, want %x", got, want)
+	}
+}
+
+func TestHashClone(t *testing.T) {
+	custom := []byte("domain")
+	h := NewHash(custom, 57)
+	_, _ = h.Write(ptn(ChunkSize + 1))
+
+	cloner, err := h.Clone()
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := cloner.(*Hash)
+	if clone.Size() != h.Size() {
+		t.Fatalf("clone Size() = %d, want %d", clone.Size(), h.Size())
+	}
+	clone.c[0] ^= 0xff
+	if !bytes.Equal(h.c, custom) {
+		t.Fatal("clone retained the original customization storage")
+	}
+
+	want := h.Sum(nil)
+	if got := clone.Sum(nil); bytes.Equal(got, want) {
+		t.Fatal("mutating clone customization did not change its digest")
+	}
+	clone = cloner.(*Hash)
+	clone.c[0] ^= 0xff
+	if got := clone.Sum(nil); !bytes.Equal(got, want) {
+		t.Fatal("restored clone does not match original")
+	}
+}
+
 func TestPos(t *testing.T) {
 	t.Run("new hasher", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		if h.Pos() != 0 {
 			t.Fatalf("Pos() = %d, want 0", h.Pos())
 		}
 	})
 
 	t.Run("after write", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		_, _ = h.Write(ptn(100))
 		if h.Pos() != 100 {
 			t.Fatalf("Pos() = %d, want 100", h.Pos())
@@ -77,7 +109,7 @@ func TestPos(t *testing.T) {
 	})
 
 	t.Run("cumulative writes", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		_, _ = h.Write(ptn(100))
 		_, _ = h.Write(ptn(200))
 		if h.Pos() != 300 {
@@ -86,7 +118,7 @@ func TestPos(t *testing.T) {
 	})
 
 	t.Run("after reset", func(t *testing.T) {
-		h := New(nil)
+		h := NewXOF(nil)
 		_, _ = h.Write(ptn(100))
 		h.Reset()
 		if h.Pos() != 0 {
@@ -96,7 +128,7 @@ func TestPos(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	h := New(nil)
+	h := NewXOF(nil)
 	_, _ = h.Write(ptn(ChunkSize + 1))
 	h.Reset()
 	if h.final != (sponge{}) || h.leaf != (sponge{}) || h.leafLen != 0 {
@@ -104,7 +136,7 @@ func TestReset(t *testing.T) {
 	}
 	_, _ = h.Write(ptn(ChunkSize + 1))
 
-	fresh := New(nil)
+	fresh := NewXOF(nil)
 	_, _ = fresh.Write(ptn(ChunkSize + 1))
 
 	out1 := make([]byte, 64)
@@ -124,12 +156,12 @@ func TestReset(t *testing.T) {
 func TestResetPreservesCustomization(t *testing.T) {
 	custom := ptn(41)
 
-	h := New(custom)
+	h := NewXOF(custom)
 	_, _ = h.Write(ptn(100))
 	h.Reset()
 	_, _ = h.Write(ptn(200))
 
-	fresh := New(custom)
+	fresh := NewXOF(custom)
 	_, _ = fresh.Write(ptn(200))
 
 	out1 := make([]byte, 64)
@@ -143,7 +175,7 @@ func TestResetPreservesCustomization(t *testing.T) {
 }
 
 func TestBlockAndChunkSizes(t *testing.T) {
-	h := New(nil)
+	h := NewXOF(nil)
 	if got, want := h.BlockSize(), 168; got != want {
 		t.Fatalf("BlockSize() = %d, want %d", got, want)
 	}

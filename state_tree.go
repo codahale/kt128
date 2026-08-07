@@ -2,18 +2,18 @@ package kt128
 
 // startTreeMode switches to tree mode after the final node has absorbed exactly
 // ChunkSize bytes of S_0.
-func (h *Hasher) startTreeMode() {
+func (h *state) startTreeMode() {
 	h.final.absorb(kt12Marker[:])
-	h.state = stateTree
+	h.phase = stateTree
 }
 
 // startTreeModeFused enters tree mode by computing the final node's
 // S_0 || marker state and the first n-1 leaves' chain values together in one
-// fused kernel pass, where a kernel exists. It requires an untouched Hasher
+// fused kernel pass, where a kernel exists. It requires an untouched state
 // and n full chunks contiguous in p, and consumes p[:n*ChunkSize]. With
 // tailBlocks > 0 the pass also absorbs the trailing partial chunk's first
 // tailBlocks whole rate-blocks into h.leaf.
-func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
+func (h *state) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 	var cvs [256]byte
 	if tailBlocks > 0 {
 		if !tryProcessS0LeavesTailArch(p, n, tailBlocks, &h.final, &h.leaf, &cvs) {
@@ -23,7 +23,7 @@ func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 	} else if !tryProcessS0LeavesArch(p[:n*ChunkSize], n, &h.final, &cvs) {
 		return false
 	}
-	h.state = stateTree
+	h.phase = stateTree
 	h.final.absorbCVs(cvs[32 : n*32])
 	return true
 }
@@ -31,7 +31,7 @@ func (h *Hasher) startTreeModeFused(p []byte, n, tailBlocks int) bool {
 // startLeafFused attempts to process n complete leaves and the whole rate blocks
 // of tail together, leaving the partial leaf ready for subsequent writes. It
 // returns false without changing h when the scheduled kernel is unavailable.
-func (h *Hasher) startLeafFused(trailing []byte, n int, tail []byte) bool {
+func (h *state) startLeafFused(trailing []byte, n int, tail []byte) bool {
 	nShared := len(tail) / rate
 	var cvs [256]byte
 	if !tryProcessLeavesTailArch(trailing, n, nShared, &cvs, &h.leaf) {
@@ -44,7 +44,7 @@ func (h *Hasher) startLeafFused(trailing []byte, n int, tail []byte) bool {
 }
 
 // finishLeaf finalizes the current leaf and absorbs its chain value.
-func (h *Hasher) finishLeaf() {
+func (h *state) finishLeaf() {
 	h.leaf.padPermute(leafDS)
 	h.final.absorbCV(&h.leaf)
 	h.leaf.reset()
