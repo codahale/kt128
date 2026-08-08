@@ -70,7 +70,7 @@ func (r *sdeStressRNG) length(smallMax int, boundaries []int) int {
 func (r *sdeStressRNG) run(t *testing.T, target string) {
 	t.Helper()
 	switch target {
-	case "FuzzHasher":
+	case "FuzzXOF":
 		msgLen := r.length(1024, []int{
 			0, 1, rate - 1, rate, rate + 1,
 			ChunkSize - 1, ChunkSize, ChunkSize + 1,
@@ -81,9 +81,9 @@ func (r *sdeStressRNG) run(t *testing.T, target string) {
 			0, 1, rate - 1, rate, rate + 1,
 			ChunkSize - 1, ChunkSize, ChunkSize + 1, 2*ChunkSize + 3,
 		})
-		checkHasherInput(t, r.bytes(msgLen), r.bytes(customLen), uint16(r.next()), uint16(r.next()))
+		checkXOFInput(t, r.bytes(msgLen), r.bytes(customLen), uint16(r.next()), uint16(r.next()))
 
-	case "FuzzHasherLifecycle":
+	case "FuzzXOFLifecycle":
 		custom0 := r.bytes(r.length(128, []int{0, 1, rate, ChunkSize, lcMaxMsg}))
 		custom1 := r.bytes(r.length(128, []int{0, 1, rate, ChunkSize, lcMaxMsg}))
 		program := r.bytes(r.length(1024, []int{0, 1, 4, 64, 256, 512, 1024}))

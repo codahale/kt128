@@ -93,7 +93,7 @@ func TestHashClone(t *testing.T) {
 }
 
 func TestPos(t *testing.T) {
-	t.Run("new hasher", func(t *testing.T) {
+	t.Run("new XOF", func(t *testing.T) {
 		h := NewXOF(nil)
 		if h.Pos() != 0 {
 			t.Fatalf("Pos() = %d, want 0", h.Pos())
@@ -146,12 +146,12 @@ func TestReset(t *testing.T) {
 	_, _ = fresh.Read(out2)
 
 	if !bytes.Equal(out1, out2) {
-		t.Fatal("Reset hasher should produce same output as fresh hasher")
+		t.Fatal("Reset XOF should produce same output as fresh XOF")
 	}
 }
 
 // TestResetPreservesCustomization verifies that Reset keeps the customization
-// string passed to New, so a reused hasher matches a fresh one constructed with
+// string passed to NewXOF, so a reused XOF matches a fresh one constructed with
 // the same customization.
 func TestResetPreservesCustomization(t *testing.T) {
 	custom := ptn(41)

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// FuzzHasher is an end-to-end differential fuzz of the public XOF against a
+// FuzzXOF is an end-to-end differential fuzz of the public XOF against a
 // self-contained KT128 reference that routes exclusively through the pure-Go
 // keccakP1600x12 permutation. On amd64/arm64 this pits the full assembly path
 // (single-lane permute, fused absorb loop, and the SIMD leaf kernels reached in
@@ -16,7 +16,7 @@ import (
 // The fuzzer varies message content, customization string, write chunking, and
 // output length, so it exercises incremental leaves, S_0 straddling, batch, and
 // remainder paths far more adversarially than a fixed corpus.
-func FuzzHasher(f *testing.F) {
+func FuzzXOF(f *testing.F) {
 	f.Add([]byte(""), []byte(""), uint16(1), uint16(32))
 	f.Add([]byte("hello, world"), []byte(""), uint16(1), uint16(32))
 	f.Add([]byte("msg"), []byte("custom"), uint16(2), uint16(64))
@@ -33,12 +33,12 @@ func FuzzHasher(f *testing.F) {
 	// Large customization string so S_0 straddles message and suffix.
 	f.Add([]byte("m"), bytes.Repeat([]byte{0x11}, ChunkSize+64), uint16(3), uint16(96))
 
-	f.Fuzz(checkHasherInput)
+	f.Fuzz(checkXOFInput)
 }
 
-// checkHasherInput runs one end-to-end differential input. It is shared by the
+// checkXOFInput runs one end-to-end differential input. It is shared by the
 // coverage-guided fuzzer and the single-process SDE stress test.
-func checkHasherInput(t *testing.T, msg, custom []byte, chunkRaw, outRaw uint16) {
+func checkXOFInput(t *testing.T, msg, custom []byte, chunkRaw, outRaw uint16) {
 	t.Helper()
 
 	// Bound sizes so iterations stay fast while still spanning chunk and
@@ -77,7 +77,7 @@ func checkHasherInput(t *testing.T, msg, custom []byte, chunkRaw, outRaw uint16)
 
 // referenceKT128 computes KT128(msg, custom) truncated to outLen bytes using
 // only keccakP1600x12. It is a direct transcription of RFC 9861 §2 and shares no
-// code with the production hasher beyond the (independently validated) pure-Go
+// code with the production XOF beyond the (independently validated) pure-Go
 // permutation.
 func referenceKT128(msg, custom []byte, outLen int) []byte {
 	// S = msg || custom || length_encode(|custom|).

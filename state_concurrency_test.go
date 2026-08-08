@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// These tests drive independent hashers, clones, and read-only operations from
+// These tests drive independent XOFs, clones, and read-only operations from
 // many goroutines at once. Run under -race (the standard CI configs do), they
 // assert that the package holds no shared mutable state: clones evolve
 // independently, the SIMD leaf kernels are reentrant, and Clone/Pos never
@@ -18,7 +18,7 @@ import (
 // goroutine reports through its own result slot and never calls t.Fatal, which
 // must not be used outside the test goroutine.
 
-// TestConcurrentCloneIndependence clones one tree-mode hasher into many
+// TestConcurrentCloneIndependence clones one tree-mode XOF into many
 // goroutines, evolves each clone with distinct data, and confirms every clone
 // matches a sequentially computed reference and that the shared source is
 // unchanged. Clone only reads the source, so a race here means Clone is not a
@@ -67,15 +67,15 @@ func TestConcurrentCloneIndependence(t *testing.T) {
 	baseOut := make([]byte, 64)
 	_, _ = base.Clone().Read(baseOut)
 	if want := referenceKT128(baseMsg, custom, 64); !bytes.Equal(baseOut, want) {
-		t.Errorf("source hasher changed after concurrent clones\n got  %x\n want %x", baseOut, want)
+		t.Errorf("source XOF changed after concurrent clones\n got  %x\n want %x", baseOut, want)
 	}
 }
 
-// TestConcurrentIndependentHashers runs many fully independent New/Write/Read
+// TestConcurrentIndependentXOFs runs many fully independent NewXOF/Write/Read
 // cycles concurrently across sizes and customizations that span the single-node,
 // tree, and multi-leaf SIMD paths, confirming each result against referenceKT128.
 // This is the broad reentrancy stress on the leaf kernels and the absorb loop.
-func TestConcurrentIndependentHashers(t *testing.T) {
+func TestConcurrentIndependentXOFs(t *testing.T) {
 	sizes := []int{0, 1, ChunkSize - 1, ChunkSize, ChunkSize + 1, 2*ChunkSize + 50, 9 * ChunkSize}
 	customs := [][]byte{nil, []byte("d"), ptn(41)}
 	const iters = 4
@@ -118,9 +118,9 @@ func TestConcurrentIndependentHashers(t *testing.T) {
 	}
 }
 
-// TestConcurrentSharedReadOnly hammers one shared, never-mutated hasher with
+// TestConcurrentSharedReadOnly hammers one shared, never-mutated XOF with
 // concurrent Clone and Pos calls. Both are pure reads, so this must be race-free,
-// and the shared hasher must remain unfinalized and unchanged afterward. A
+// and the shared XOF must remain unfinalized and unchanged afterward. A
 // regression that made Clone mutate the receiver (e.g. a lazy initialization)
 // would both race here and corrupt the shared state.
 func TestConcurrentSharedReadOnly(t *testing.T) {
@@ -171,6 +171,6 @@ func TestConcurrentSharedReadOnly(t *testing.T) {
 	final := make([]byte, 64)
 	_, _ = h.Read(final)
 	if !bytes.Equal(final, want) {
-		t.Errorf("shared hasher changed after concurrent read-only ops\n got  %x\n want %x", final, want)
+		t.Errorf("shared XOF changed after concurrent read-only ops\n got  %x\n want %x", final, want)
 	}
 }

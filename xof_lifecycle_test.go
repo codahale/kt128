@@ -7,22 +7,22 @@ import (
 )
 
 // This file hardens the XOF *lifecycle* — the state machine and the
-// Clone/Reset/Write/Read interactions — which FuzzHasher does not reach
+// Clone/Reset/Write/Read interactions — which FuzzXOF does not reach
 // because it only ever drives a single linear Write* -> Read sequence. Here an
 // interpreter applies an arbitrary interleaving of operations to a population of
-// hashers and checks each one against a model after every step. The model tracks
+// XOFs and checks each one against a model after every step. The model tracks
 // only (custom, accumulated message, finalized, bytes squeezed) and derives the
-// expected output through referenceKT128, the same independent oracle FuzzHasher
-// uses, so the production hasher's lifecycle is validated against an
+// expected output through referenceKT128, the same independent oracle FuzzXOF
+// uses, so the production XOF's lifecycle is validated against an
 // implementation that shares no state-management code with it.
 
 const (
 	lcMaxMsg     = 3 * ChunkSize // per-slot message cap (crosses single->tree and several leaves)
 	lcMaxSqueeze = 4096          // per-slot squeeze cap (spans many rate blocks)
-	lcMaxSlots   = 8             // bound the live hasher population
+	lcMaxSlots   = 8             // bound the live XOF population
 )
 
-// lcModel is the reference state of one hasher. The expected output for a hasher
+// lcModel is the reference state of one XOF. The expected output for an XOF
 // that has already squeezed `squeezed` bytes is bytes [squeezed, squeezed+n) of
 // referenceKT128(msg, custom).
 type lcModel struct {
@@ -106,7 +106,7 @@ func lcFill(seed byte, n int) []byte {
 }
 
 // lcWritePanics reports whether Write panicked, recovering it. Used to assert the
-// finalized-hasher write contract without aborting the interpreter.
+// finalized-XOF write contract without aborting the interpreter.
 func lcWritePanics(h *XOF, p []byte) (panicked bool) {
 	defer func() {
 		if recover() != nil {
@@ -117,7 +117,7 @@ func lcWritePanics(h *XOF, p []byte) (panicked bool) {
 	return false
 }
 
-// executeLifecycle runs ops against one hasher per customization string, checking
+// executeLifecycle runs ops against one XOF per customization string, checking
 // every slot against its model after each step.
 func executeLifecycle(t *testing.T, customs [][]byte, ops []lcOp) {
 	t.Helper()
@@ -269,14 +269,14 @@ func decodeOps(program []byte) []lcOp {
 	return ops
 }
 
-// FuzzHasherLifecycle drives an adversarial interleaving of Write, Read, Clone,
-// and Reset across two hashers (with distinct customization strings) and their
+// FuzzXOFLifecycle drives an adversarial interleaving of Write, Read, Clone,
+// and Reset across two XOFs (with distinct customization strings) and their
 // clones, checking every operation against the model. It exercises the
 // stateSingle->stateTree->stateFinalized transitions, Clone independence
-// (including cloning a mid-squeeze finalized hasher), Reset reuse (including
+// (including cloning a mid-squeeze finalized XOF), Reset reuse (including
 // reset-after-finalize), and the write-after-finalize panic — none of which
-// FuzzHasher's linear path reaches.
-func FuzzHasherLifecycle(f *testing.F) {
+// FuzzXOF's linear path reaches.
+func FuzzXOFLifecycle(f *testing.F) {
 	f.Add([]byte(""), []byte("domain"), []byte{})
 	f.Add([]byte("alpha"), []byte("beta"), []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11})
 	f.Add([]byte(""), []byte(""), lcSeedBytes(64, 99))
@@ -293,10 +293,10 @@ func FuzzHasherLifecycle(f *testing.F) {
 	})
 }
 
-// TestHasherLifecycle runs hand-built operation sequences through the same
+// TestXOFLifecycle runs hand-built operation sequences through the same
 // interpreter so the key transitions are covered deterministically in `go test`,
 // independent of the fuzz corpus (fuzzing itself runs only nightly).
-func TestHasherLifecycle(t *testing.T) {
+func TestXOFLifecycle(t *testing.T) {
 	cases := []struct {
 		name    string
 		customs [][]byte
@@ -310,7 +310,7 @@ func TestHasherLifecycle(t *testing.T) {
 				opRead(0, 40),              // finalize + squeeze
 				opRead(0, 24),              // continue squeezing
 				opWrite(0, 10, 2),          // must panic
-				opReset(0),                 // reset a finalized hasher
+				opReset(0),                 // reset a finalized XOF
 				opWrite(0, 5, 3),           // reuse
 				opRead(0, 32),
 			},
@@ -327,7 +327,7 @@ func TestHasherLifecycle(t *testing.T) {
 			},
 		},
 		{
-			name:    "clone a mid-squeeze finalized hasher",
+			name:    "clone a mid-squeeze finalized XOF",
 			customs: [][]byte{nil, nil},
 			ops: []lcOp{
 				opWrite(0, 2*ChunkSize+5, 7), // tree mode, several leaves

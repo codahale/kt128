@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func BenchmarkHasherWrite(b *testing.B) {
+func BenchmarkXOFWrite(b *testing.B) {
 	for _, tc := range []struct {
 		name string
 		size int

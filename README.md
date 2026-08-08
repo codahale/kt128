@@ -61,7 +61,7 @@ _, _ = h.Write([]byte("world"))
 sum := h.Sum(nil)
 ```
 
-`Sum` appends the digest to its argument without finalizing the hasher, so more input may be written afterward.
+`Sum` appends the digest to its argument without finalizing the `Hash`, so more input may be written afterward.
 
 For arbitrary-length XOF output:
 
