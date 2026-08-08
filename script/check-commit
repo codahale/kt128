@@ -19,6 +19,7 @@ if ((${#workflow_files[@]} > 0)); then
   actionlint "${workflow_files[@]}"
 fi
 
-golangci-lint config verify
 golangci-lint fmt --diff
+golangci-lint run
 go mod tidy -diff
+go test ./...
