@@ -76,3 +76,39 @@ func TestCustomizationFinalizationDoesNotAllocate(t *testing.T) {
 		}
 	}
 }
+
+// TestHashSumWithCustomizationDoesNotAllocate guards that Sum borrows the
+// receiver-owned customization string while finalizing its temporary state.
+func TestHashSumWithCustomizationDoesNotAllocate(t *testing.T) {
+	h := NewHash(ptn(128))
+	_, _ = h.Write(ptn(ChunkSize + 1))
+	var out [DigestSize]byte
+
+	allocs := testing.AllocsPerRun(20, func() {
+		got := h.Sum(out[:0])
+		if len(got) != DigestSize {
+			panic("unexpected digest size")
+		}
+	})
+	if allocs != 0 {
+		t.Errorf("Hash.Sum allocated %.0f times, want 0", allocs)
+	}
+}
+
+// TestOneShotSumAllocatesOnlyOutput guards that Sum does not defensively copy
+// the customization string, which it only borrows for the duration of the call.
+func TestOneShotSumAllocatesOnlyOutput(t *testing.T) {
+	message := ptn(ChunkSize + 1)
+	custom := ptn(128)
+	var got []byte
+
+	allocs := testing.AllocsPerRun(20, func() {
+		got = Sum(message, custom, DigestSize)
+	})
+	if len(got) != DigestSize {
+		t.Fatalf("Sum returned %d bytes, want %d", len(got), DigestSize)
+	}
+	if allocs != 1 {
+		t.Errorf("Sum allocated %.0f times, want only its output allocation", allocs)
+	}
+}

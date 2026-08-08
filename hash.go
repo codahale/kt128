@@ -41,7 +41,7 @@ func (h *Hash) Write(p []byte) (int, error) { return h.core().write(p) }
 // Sum appends the current 32-byte KT128 digest to b without changing h's state.
 func (h *Hash) Sum(b []byte) []byte {
 	var clone state
-	h.core().cloneInto(&clone)
+	h.core().cloneIntoBorrowingCustomization(&clone)
 	size := h.Size()
 	start := len(b)
 	b = append(b, make([]byte, size)...)

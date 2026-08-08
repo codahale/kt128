@@ -9,7 +9,8 @@ func Sum(message, customization []byte, outputLen int) []byte {
 	}
 
 	sum := make([]byte, outputLen)
-	h := NewXOF(customization)
+	var h XOF
+	h.c = customization
 	_, _ = h.Write(message)
 	_, _ = h.Read(sum)
 	return sum
