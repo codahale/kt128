@@ -60,7 +60,7 @@ func (x *XOF) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the binary encoding of x to b. It does not modify
 // b[:len(b)] or retain b.
 func (x *XOF) AppendBinary(b []byte) ([]byte, error) {
-	return appendState(b, x.core(), stateKindXOF, 0)
+	return appendState(b, x.core(), stateKindXOF)
 }
 
 // UnmarshalBinary replaces x with the XOF state encoded by data. The receiver

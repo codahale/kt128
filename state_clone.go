@@ -7,7 +7,6 @@ func (h *state) cloneInto(dst *state) {
 	dst.pos = h.pos
 	dst.leafLen = h.leafLen
 	dst.phase = h.phase
-	dst.digest = h.digest
 }
 
 func (h *state) reset() {

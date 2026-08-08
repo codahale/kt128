@@ -65,7 +65,7 @@ func TestXOFZeroValue(t *testing.T) {
 
 func TestHashClone(t *testing.T) {
 	custom := []byte("domain")
-	h := NewHash(custom, 57)
+	h := NewHash(custom)
 	_, _ = h.Write(ptn(ChunkSize + 1))
 
 	cloner, err := h.Clone()

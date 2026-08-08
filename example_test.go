@@ -14,7 +14,7 @@ var (
 )
 
 func ExampleNewHash() {
-	h := kt128.NewHash(nil, 32)
+	h := kt128.NewHash(nil)
 	_, _ = h.Write([]byte{0})
 	fmt.Printf("%x\n", h.Sum(nil))
 

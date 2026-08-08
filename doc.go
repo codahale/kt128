@@ -1,10 +1,10 @@
 // Package kt128 implements KT128 (KangarooTwelve) as specified in [RFC 9861].
 //
 // KT128 is a tree-hash eXtendable-Output Function (XOF) built on TurboSHAKE128.
-// [Hash] implements [hash.Hash] with a caller-selected digest size, while [XOF]
-// implements [hash.XOF] for arbitrary-length output. Create one with [NewHash]
-// or [NewXOF], then absorb the message with Write. Reading from an XOF finalizes
-// its message; subsequent reads continue the same output stream.
+// [Hash] implements [hash.Hash] with a 32-byte digest, while [XOF] implements
+// [hash.XOF] for arbitrary-length output. Create one with [NewHash] or [NewXOF],
+// then absorb the message with Write. Reading from an XOF finalizes its message;
+// subsequent reads continue the same output stream.
 //
 // When the input (the message plus the customization string and its length
 // encoding) exceeds [ChunkSize] bytes, it splits the input into chunks and

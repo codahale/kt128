@@ -25,7 +25,7 @@ func TestNewXOFCopiesCustomization(t *testing.T) {
 func TestNewHashCopiesCustomization(t *testing.T) {
 	source := ptn(41)
 	want := bytes.Clone(source)
-	h := NewHash(source, 32)
+	h := NewHash(source)
 
 	clear(source)
 	if !bytes.Equal(h.c, want) {

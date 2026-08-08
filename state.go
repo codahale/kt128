@@ -4,7 +4,8 @@ const (
 	// ChunkSize is the KT128 chunk size in bytes.
 	ChunkSize = 8192
 
-	defaultDigestSize = 32
+	// DigestSize is the number of bytes returned by [Hash.Sum].
+	DigestSize = 32
 
 	leafDS   = 0x0B
 	treeDS   = 0x06
@@ -30,5 +31,4 @@ type state struct {
 	pos     uint64 // total bytes written via Write
 	leafLen int    // bytes absorbed into leaf; 0 = no partial leaf
 	phase   uint8  // absorbing or finalized
-	digest  int    // Hash digest size; zero means the zero-value default or XOF
 }
