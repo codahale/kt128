@@ -20,22 +20,20 @@ arbitrary-length output, customization strings, and optimized tree hashing for l
 
 ## Development
 
-The repository's check scripts require [`actionlint`](https://github.com/rhysd/actionlint) and
+The repository's check script requires [`actionlint`](https://github.com/rhysd/actionlint) and
 [`golangci-lint`](https://golangci-lint.run/) v2 in addition to Go. Run the checks directly with:
 
 ```bash
 script/check-commit
-script/check-push
 ```
 
-The repository includes matching pre-commit and pre-push hooks. Enable them for the clone with:
+The repository includes a pre-commit hook. Enable it for the clone with:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-The pre-commit hook runs `script/check-commit` against the staged tree. The pre-push hook runs
-`script/check-push` against each commit being pushed.
+The pre-commit hook runs `script/check-commit` against the staged tree.
 
 ## Install
 
