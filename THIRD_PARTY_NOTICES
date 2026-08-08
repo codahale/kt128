@@ -1,0 +1,110 @@
+Third-Party Notices
+===================
+
+This file identifies third-party software included in the kt128 repository.
+The MIT and Apache-2.0 licenses in LICENSE-MIT and LICENSE-APACHE apply
+only to original kt128 contributions. The third-party material described
+below remains subject to its respective license.
+
+
+The Go Authors
+--------------
+
+The following components use software developed by The Go Authors:
+
+* Portions of keccak_round_scalar_amd64.h and sponge_permute_amd64.s are
+  adapted from Go's AMD64 SHA-3/Keccak implementation.
+* Portions of keccak_round_neon_x2_arm64.h and sponge_permute_arm64.s are
+  adapted from Go's ARM64 SHA-3/Keccak implementation.
+Upstream sources:
+
+* https://github.com/golang/go/tree/master/src/crypto/internal/fips140/sha3
+
+The assembly adaptations extract or reorganize permutation rounds, use the
+final 12 Keccak-p[1600,12] rounds, and integrate the code with kt128's local
+state and absorb implementations.
+
+The adapted assembly portions retain this upstream source notice:
+
+Copyright 2022 The Go Authors. All rights reserved.
+
+The Go project is distributed under the following license:
+
+Copyright 2009 The Go Authors.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of Google LLC nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+CRYPTOGAMS
+----------
+
+The AVX-512 x1 Keccak-p[1600,12] round macros in
+keccak_round_avx512_x8_amd64.h, together with their constants and caller in
+sponge_permute_amd64.s, are adapted from Andy Polyakov's CRYPTOGAMS
+keccak1600-avx512.pl. The implementation was ported to Go Plan 9 assembly
+and restricted to the final 12 rounds.
+
+Upstream source:
+
+https://github.com/dot-asm/cryptogams/blob/master/x86_64/keccak1600-avx512.pl
+
+Copyright (c) 2006, CRYPTOGAMS by <appro@openssl.org>
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+      * Redistributions of source code must retain copyright notices,
+	this list of conditions and the following disclaimer.
+
+      * Redistributions in binary form must reproduce the above
+	copyright notice, this list of conditions and the following
+	disclaimer in the documentation and/or other materials
+	provided with the distribution.
+
+      * Neither the name of the CRYPTOGAMS nor the names of its
+	copyright holder and contributors may be used to endorse or
+	promote products derived from this software without specific
+	prior written permission.
+
+ALTERNATIVELY, provided that this notice is retained in full, this
+product may be distributed under the terms of the GNU General Public
+License (GPL), in which case the provisions of the GPL apply INSTEAD OF
+those given above.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

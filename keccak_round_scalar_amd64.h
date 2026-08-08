@@ -1,3 +1,9 @@
+// The following Keccak round macro is derived from Go's SHA-3 implementation.
+//
+// Copyright 2022 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license reproduced in THIRD_PARTY_NOTICES.
+
 // Keccak-f[1600] GP (general-purpose register) round macro. Requires BMI2.
 // Shared by the scalar permutation and fused absorb implementations.
 //

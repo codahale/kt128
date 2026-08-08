@@ -260,4 +260,7 @@ and runtime may also retain copies in stack slots, registers, or other runtime-m
 
 ## License
 
-Dual-licensed under Apache-2.0 and MIT. See LICENSE-APACHE and LICENSE-MIT.
+Original contributions to kt128 are dual-licensed under Apache-2.0 and MIT.
+See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT).
+Third-party material retains its upstream licenses; see
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

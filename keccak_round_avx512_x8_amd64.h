@@ -137,7 +137,12 @@
 
 // ─── AVX-512 x1 Keccak-p[1600,12] permutation macros ───
 //
-// Based on Andy Polyakov's CRYPTOGAMS keccak1600-avx512.pl (OpenSSL/XKCP).
+// Copyright (c) 2006, CRYPTOGAMS by <appro@openssl.org>
+// All rights reserved.
+// Licensed under the CRYPTOGAMS terms reproduced in THIRD_PARTY_NOTICES.
+//
+// Based on Andy Polyakov's canonical CRYPTOGAMS keccak1600-avx512.pl:
+// https://github.com/dot-asm/cryptogams/blob/master/x86_64/keccak1600-avx512.pl
 // Ported to Go Plan 9 assembly.
 //
 // State layout: one row of the 5×5 state per ZMM register (5 qwords used,
@@ -360,3 +365,5 @@
 	VPERMQ Z9, Z14, Z5; \
 	VPERMQ Z9, Z13, Z9; \
 	VPTERNLOGQ $0xD2, Z9, Z5, Z4
+
+// End of CRYPTOGAMS-derived AVX-512 x1 macros.

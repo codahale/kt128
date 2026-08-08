@@ -1,11 +1,13 @@
-// Copyright 2022 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 //go:build !purego
 
 #include "textflag.h"
 #include "keccak_round_neon_x2_arm64.h"
+
+// The following p1600 function is derived from Go's SHA-3 implementation.
+//
+// Copyright 2022 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license reproduced in THIRD_PARTY_NOTICES.
 
 // func p1600(a *sponge)
 TEXT ·p1600(SB), $200-8
@@ -34,3 +36,5 @@ TEXT ·p1600(SB), $200-8
 	VST1	[V24.D1], (R0)
 
 	RET
+
+// End of Go-derived p1600 function.

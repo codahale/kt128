@@ -1,3 +1,9 @@
+// The following Keccak round macros are derived from Go's SHA-3 implementation.
+//
+// Copyright 2022 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license reproduced in THIRD_PARTY_NOTICES.
+
 #define KECCAK_ROUND \
 	/* theta */ \
 	VEOR3	 V20.B16, V15.B16, V10.B16, V25.B16; \
@@ -102,6 +108,8 @@
 	KECCAK_ROUND; \
 	KECCAK_ROUND; \
 	KECCAK_ROUND
+
+// End of Go-derived Keccak round macros.
 
 #define LOAD25_STRIDE(BASE, STRIDE) \
 	VLD1	(BASE), [V0.D2]; ADD $STRIDE, BASE, BASE; \

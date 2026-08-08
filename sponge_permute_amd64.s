@@ -1,7 +1,3 @@
-// Copyright 2022 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 //go:build !purego
 
 
@@ -9,6 +5,12 @@
 #include "keccak_round_scalar_amd64.h"
 #include "keccak_round_avx512_x8_amd64.h"
 
+
+// The following p1600 function is derived from Go's SHA-3 implementation.
+//
+// Copyright 2022 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license reproduced in THIRD_PARTY_NOTICES.
 
 // func p1600(a *sponge)
 TEXT ·p1600(SB), $200-8
@@ -62,6 +64,15 @@ TEXT ·p1600(SB), $200-8
 	NOTQ 136(DI)
 	NOTQ 160(DI)
 	RET
+
+// End of Go-derived p1600 function.
+
+// The following AVX-512 constants and p1600AVX512 function are derived from
+// Andy Polyakov's CRYPTOGAMS keccak1600-avx512.pl.
+//
+// Copyright (c) 2006, CRYPTOGAMS by <appro@openssl.org>
+// All rights reserved.
+// Licensed under the CRYPTOGAMS terms reproduced in THIRD_PARTY_NOTICES.
 
 // AVX-512 x1 permutation constants (1280 bytes = 20 × 64).
 // Layout documented in keccak_round_avx512_x8_amd64.h.
