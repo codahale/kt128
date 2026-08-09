@@ -38,7 +38,7 @@ jobs:
         - ubuntu-24.04
         - ubuntu-24.04-arm
         config:
-        - { name: "Standard",   tags: "",                     flags: "-race", expect512: "",  expect2: "",  expectSHA3: "",  godebug: "" }
+        - { name: "Standard",   tags: "",                     flags: "-race", expect512: "",  expect2: "",  expectSHA3: "1", godebug: "" }
         - { name: "Pure Go",    tags: "purego",               flags: "",      expect512: "",  expect2: "",  expectSHA3: "",  godebug: "" }
         - { name: "No x86 SIMD", tags: "",                    flags: "-race", expect512: "0", expect2: "0", expectSHA3: "",  godebug: "cpu.avx2=off,cpu.avx512f=off" }
         - { name: "No SHA3",    tags: "",                     flags: "-race", expect512: "",  expect2: "",  expectSHA3: "0", godebug: "cpu.sha3=off" }
