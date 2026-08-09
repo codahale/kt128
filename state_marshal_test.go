@@ -301,7 +301,7 @@ func TestXOFUnmarshalBinaryRejectsInvalidStatesAtomically(t *testing.T) {
 	_, _ = finalized.Read(nil)
 	finalizedEncoding, _ := finalized.MarshalBinary()
 
-	clone := func(b []byte) []byte { return bytes.Clone(b) }
+	clone := bytes.Clone
 	putPos := func(b []byte, pos uint64) { binary.BigEndian.PutUint64(b[marshalPosOffset:], pos) }
 	tests := []struct {
 		name string
