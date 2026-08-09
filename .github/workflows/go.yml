@@ -53,10 +53,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
         cache: true
@@ -83,10 +83,10 @@ jobs:
         - { name: "Generic (snb)", chip: "snb", expect512: "0", expect2: "0", expectBMI2: "0" }
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
         cache: true
@@ -114,17 +114,17 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
         cache: true
 
     # Register binfmt handlers so the kernel runs s390x binaries through QEMU.
     - name: Setup QEMU
-      uses: docker/setup-qemu-action@v3
+      uses: docker/setup-qemu-action@v4
 
     # s390x is big-endian, so this exercises the pure-Go path's LittleEndian byte
     # handling on a big-endian host; the asm targets are build-excluded there.
@@ -138,10 +138,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
         cache: true
@@ -157,10 +157,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
         cache: false
@@ -176,10 +176,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
         cache: true

@@ -48,10 +48,10 @@ jobs:
         - { name: "Absorb (spr)",    os: ubuntu-24.04,     target: FuzzFastLoopAbsorb168x1AVX512, chip: spr }
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
         cache: false
@@ -60,7 +60,7 @@ jobs:
     # fuzzing accumulates coverage instead of restarting from the seeds each time.
     - name: Restore fuzz corpus
       if: matrix.chip == ''
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/go-build/fuzz
         key: fuzz-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.chip }}-${{ github.run_id }}
@@ -105,7 +105,7 @@ jobs:
     # it so the failing input can be replayed locally.
     - name: Upload failing inputs
       if: failure() && matrix.chip == ''
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: fuzz-failure-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.chip }}
         path: testdata/fuzz
