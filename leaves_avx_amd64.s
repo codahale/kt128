@@ -1,7 +1,7 @@
 // Fused KT128 leaf processing — AVX-512 and AVX2 implementations.
 //
-// Each function processes 8 × 8192-byte chunks in a single call,
-// producing 8 × 32-byte chain values without materializing intermediate state.
+// The kernels cover 8-chunk bulk batches, variable-width remainders, and fused
+// S_0 or partial-tail passes without materializing intermediate sponge states.
 
 //go:build !purego
 

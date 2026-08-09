@@ -79,8 +79,8 @@ const tripleSerialTailBlocks = 32
 // that nShared is within the kernels' stripe bound — so a scheduling
 // miscalculation panics instead of reading out of bounds.
 
-// tryProcessLeavesX8Arch reports that arm64 has no x8 kernel; eight leaves
-// drain through the pair loop at the same cost.
+// tryProcessLeavesX8Arch reports that arm64 has no x8 kernel; batches drain
+// through the x5, x3, and x2 stages instead.
 func tryProcessLeavesX8Arch(_ []byte, _ *[256]byte) bool { return false }
 
 // tryProcessLeavesBatch5Arch computes 5 leaf CVs from 5 contiguous chunks via

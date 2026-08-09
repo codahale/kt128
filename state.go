@@ -12,7 +12,7 @@ const (
 	singleDS = 0x07
 
 	// Internal lifecycle states.
-	stateSingle    uint8 = 0 // absorbing, single-node (< 1 chunk seen)
+	stateSingle    uint8 = 0 // absorbing, tree mode not entered (<= 1 message chunk)
 	stateTree      uint8 = 1 // absorbing, tree mode (S_0 flushed)
 	stateFinalized uint8 = 2 // finalized and squeezable
 )

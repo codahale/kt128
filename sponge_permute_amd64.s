@@ -24,7 +24,7 @@ TEXT ·p1600(SB), $200-8
 	NOTQ 136(DI)
 	NOTQ 160(DI)
 
-	// Execute the KeccakF permutation
+	// Execute the Keccak-p[1600,12] permutation
 	MOVQ (DI), SI
 	MOVQ 8(DI), BP
 	MOVQ 32(DI), R15

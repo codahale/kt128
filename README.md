@@ -133,8 +133,8 @@ implementation switches to tree hashing. Leaf compression is processed in parall
 - `amd64`: 8-wide AVX-512 kernels for whole batches and 5–7-leaf remainders, 4-wide kernels for 3–4 leaves, and 2-wide
   kernels for two leaves; AVX2 kernels when AVX-512 is unavailable; generic kernels when neither ISA is available
 - `arm64` with the SHA3 extension: a hybrid scalar/NEON kernel that compresses five chunks per pass — four on the
-  NEON unit and a fifth woven onto the otherwise-idle scalar pipes — with 2-wide NEON kernels draining remainders;
-  generic kernels otherwise
+  NEON unit and a fifth woven onto the otherwise-idle scalar pipes — with a 3-leaf hybrid and 2-wide NEON pairs
+  draining remainders; generic kernels otherwise
 - other targets or `purego`: scalar fallback
 
 On accelerated paths, the first chunk and a trailing partial chunk are fused into parallel passes when a suitable
@@ -150,8 +150,8 @@ not report as available.
 
 On `amd64`, leaf hashing and single-sponge operations use separate dispatch ladders:
 
-- Leaf hashing uses AVX-512 when AVX-512, AVX-512F, AVX-512VL, and AVX-512DQ are available; otherwise AVX2; otherwise
-  generic Go.
+- Leaf hashing uses AVX-512 when the OS enables AVX-512 state and the CPU reports AVX-512F, AVX-512VL, and AVX-512DQ;
+  otherwise AVX2; otherwise generic Go.
 - Sponge permutation and absorption use AVX-512 when available; otherwise BMI2 assembly; otherwise generic Go.
 
 On `arm64`, the SHA3 extension gates both the NEON leaf kernels and the assembly sponge implementation. Without SHA3,
