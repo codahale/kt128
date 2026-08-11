@@ -96,9 +96,11 @@ jobs:
         # the AVX-512 fuzzers would silently skip (and FuzzXOF would fuzz the
         # AVX2 path), and "no fuzz tests to fuzz" exits 0 — a green run that tested
         # nothing.
-        "$SDE_PATH/sde64" -${{ matrix.chip }} -- ./kt128.test -test.run '^TestExpectedISA$' -test.v
+        timeout --kill-after=30s 2m "$SDE_PATH/sde64" -${{ matrix.chip }} -- \
+          ./kt128.test -test.run '^TestExpectedISA$' -test.v
         echo "SDE stress target=$KT128_STRESS_TARGET seed=$KT128_STRESS_SEED iterations=$KT128_STRESS_ITERATIONS"
-        "$SDE_PATH/sde64" -${{ matrix.chip }} -- ./kt128.test \
+        # Bound SDE itself in case Pin hangs while shutting down after Go exits.
+        timeout --kill-after=30s 25m "$SDE_PATH/sde64" -${{ matrix.chip }} -- ./kt128.test \
           -test.run '^TestSDEStress$' -test.timeout 20m
 
     # On a crash, go test writes the reproducer to testdata/fuzz/<Target>/; keep
