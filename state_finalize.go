@@ -86,7 +86,7 @@ func treeLeafCount(messageLen, suffixLen uint64) uint64 {
 }
 
 // lengthEncode appends value encoded as specified by KangarooTwelve
-// (RFC 9861 Section 2.3.1) to b and returns the resulting slice. The encoding
+// (RFC 9861 Section 3.3) to b and returns the resulting slice. The encoding
 // is big-endian with no leading zeros, followed by a byte giving its length.
 func lengthEncode(b []byte, value uint64) []byte {
 	if value == 0 {

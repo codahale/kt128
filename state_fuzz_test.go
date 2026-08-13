@@ -76,7 +76,7 @@ func checkXOFInput(t *testing.T, msg, custom []byte, chunkRaw, outRaw uint16) {
 }
 
 // referenceKT128 computes KT128(msg, custom) truncated to outLen bytes using
-// only keccakP1600x12. It is a direct transcription of RFC 9861 §2 and shares no
+// only keccakP1600x12. It is a direct transcription of RFC 9861 §3.2 and shares no
 // code with the production XOF beyond the (independently validated) pure-Go
 // permutation.
 func referenceKT128(msg, custom []byte, outLen int) []byte {

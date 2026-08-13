@@ -183,9 +183,3 @@ func TestBlockAndChunkSizes(t *testing.T) {
 		t.Fatalf("ChunkSize = %d, want %d", got, want)
 	}
 }
-
-// TestLengthEncode checks lengthEncode against hand-computed golden values for
-// RFC 9861 §2.3.1's own examples and every byte-width boundary. The leafCount and
-// |C| encodings only reach the multi-byte forms on very large inputs, so the
-// RFC vectors and the (size-capped) fuzzer barely exercise them; these golden
-// values pin the encoding independently of any other implementation in the tree.
