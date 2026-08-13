@@ -16,7 +16,7 @@ arbitrary-length output, customization strings, and optimized tree hashing for l
 
 ## Requirements
 
-- Go `1.26.1` or newer
+- Go `1.25.0` or newer
 
 ## Development
 

@@ -29,6 +29,27 @@ permissions:
   contents: read
 
 jobs:
+  minimum-go:
+    name: Test (Go 1.25)
+    runs-on: ubuntu-24.04
+    env:
+      # Prevent the go command from silently selecting a newer toolchain.
+      GOTOOLCHAIN: local
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Setup Go
+      uses: actions/setup-go@v7
+      with:
+        go-version: '1.25.x'
+        cache: true
+
+    - name: Test
+      run: go test ./...
+
   test:
     name: Test (${{ matrix.os }}, ${{ matrix.config.name }})
     strategy:
