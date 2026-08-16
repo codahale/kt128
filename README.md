@@ -1,5 +1,16 @@
 # kt128
 
+> [!CAUTION]
+> This project was a personal experiment in using frontier LLMs to produce highly optimized,
+> security sensitive code. I don't think you should actually _use_ this code. For one, KT128 has a
+> performance profile which is incredibly sensitive to the buffering policies used and the lengths
+> of the messages being hashed. For two, this repo is an absolute tower of assembly, the maintenance
+> burden of which does not magically go away just because a frontier LLM can write it. In pretty
+> much all respects except performance, the standard library implementations of SHA-256 and SHA-3
+> are vastly superior and you should use those.
+
+---
+
 `kt128` is a Go implementation of KT128 (KangarooTwelve) as specified in
 [RFC 9861](https://www.rfc-editor.org/rfc/rfc9861.html).
 
